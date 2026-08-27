@@ -359,19 +359,9 @@ function populateFilters(){
   buildMsel('vendedor',vendors);
   buildMsel('segm',segms);
 }
-function renderCartera(){
-  const arr=Object.values(clientes);
-  const tot=arr.reduce((s,c)=>s+c.saldo,0);
-  const enG=arr.filter(c=>state.casos[c.key]).length;
-  const brk={'0-30':0,'31-60':0,'61-90':0,'+90':0}; arr.forEach(c=>AG.forEach(a=>brk[a[0]]+=c.brk[a[0]]));
-  $('kpis').innerHTML=kpi(millones(tot),'Saldo vencido total','red')+kpi(arr.length,'Clientes con deuda','')+kpi(millones(brk['+90']),'En +90 días','gold')+kpi(enG,'En gestión activa','teal');
-  $('agingBar').innerHTML=AG.map(a=>{const w=tot?brk[a[0]]/tot*100:0;return w>0?`<span style="width:${w}%;background:${a[1]}"></span>`:'';}).join('');
-  $('agingLeg').innerHTML=AG.map(a=>`<div class="it"><span class="sw" style="background:${a[1]}"></span>${a[0]} días · <b>${millones(brk[a[0]])}</b> (${tot?Math.round(brk[a[0]]/tot*100):0}%)</div>`).join('');
-  renderCartTable();
-}
-function renderCartTable(){
+function getFiltered(){
   const q=norm($('search').value), fg=$('fGest').value;
-  let arr=Object.values(clientes).filter(c=>{
+  return Object.values(clientes).filter(c=>{
     if(q&&!(norm(c.rs).includes(q)||c.cod.includes(q))) return false;
     if(selAging.size&&![...selAging].some(b=>c.brk[b]>0)) return false;
     if(selVendedor.size&&!selVendedor.has(c.vendedor)) return false;
@@ -380,6 +370,19 @@ function renderCartTable(){
     if(fg==='no'&&state.casos[c.key]) return false;
     return true;
   });
+}
+function renderTotals(arr){
+  const tot=arr.reduce((s,c)=>s+c.saldo,0);
+  const enG=arr.filter(c=>state.casos[c.key]).length;
+  const brk={'0-30':0,'31-60':0,'61-90':0,'+90':0}; arr.forEach(c=>AG.forEach(a=>brk[a[0]]+=c.brk[a[0]]));
+  $('kpis').innerHTML=kpi(millones(tot),'Saldo vencido total','red')+kpi(arr.length,'Clientes con deuda','')+kpi(millones(brk['+90']),'En +90 días','gold')+kpi(enG,'En gestión activa','teal');
+  $('agingBar').innerHTML=AG.map(a=>{const w=tot?brk[a[0]]/tot*100:0;return w>0?`<span style="width:${w}%;background:${a[1]}"></span>`:'';}).join('');
+  $('agingLeg').innerHTML=AG.map(a=>`<div class="it"><span class="sw" style="background:${a[1]}"></span>${a[0]} días · <b>${millones(brk[a[0]])}</b> (${tot?Math.round(brk[a[0]]/tot*100):0}%)</div>`).join('');
+}
+function renderCartera(){ renderCartTable(); }
+function renderCartTable(){
+  const arr=getFiltered();
+  renderTotals(arr);
   arr.sort((a,b)=>{let x=a[sortKey],y=b[sortKey];if(sortKey==='worst'){x=agIdx(a.worst);y=agIdx(b.worst);}if(typeof x==='string'){return sortDir*x.localeCompare(y);}return sortDir*((x||0)-(y||0));});
 
   const groups=new Map();
