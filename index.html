@@ -361,15 +361,25 @@ function populateFilters(){
 }
 function getFiltered(){
   const q=norm($('search').value), fg=$('fGest').value;
-  return Object.values(clientes).filter(c=>{
-    if(q&&!(norm(c.rs).includes(q)||c.cod.includes(q))) return false;
-    if(selAging.size&&![...selAging].some(b=>c.brk[b]>0)) return false;
-    if(selVendedor.size&&!selVendedor.has(c.vendedor)) return false;
-    if(selSegm.size&&!selSegm.has(c.segLabel)) return false;
-    if(fg==='si'&&!state.casos[c.key]) return false;
-    if(fg==='no'&&state.casos[c.key]) return false;
-    return true;
+  const out=[];
+  Object.values(clientes).forEach(c=>{
+    if(q&&!(norm(c.rs).includes(q)||c.cod.includes(q))) return;
+    if(selVendedor.size&&!selVendedor.has(c.vendedor)) return;
+    if(selSegm.size&&!selSegm.has(c.segLabel)) return;
+    if(fg==='si'&&!state.casos[c.key]) return;
+    if(fg==='no'&&state.casos[c.key]) return;
+    if(!selAging.size){ out.push(c); return; }
+    if(![...selAging].some(b=>c.brk[b]>0)) return;
+    // Con tramos filtrados, el cliente se muestra solo con la parte de deuda que cae en esos tramos
+    const brk={}; AG.forEach(a=>brk[a[0]]=selAging.has(a[0])?c.brk[a[0]]:0);
+    const lines=c.lines.filter(l=>selAging.has(l.b));
+    out.push({...c,brk,lines,
+      saldo:AG.reduce((s,a)=>s+brk[a[0]],0),
+      nComp:lines.length,
+      dvmax:lines.reduce((m,l)=>Math.max(m,l.dias),0),
+      worst:['+90','61-90','31-60','0-30'].find(b=>brk[b]>0)||'0-30'});
   });
+  return out;
 }
 function renderTotals(arr){
   const tot=arr.reduce((s,c)=>s+c.saldo,0);
