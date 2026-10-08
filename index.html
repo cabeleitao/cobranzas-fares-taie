@@ -712,7 +712,6 @@ function pdfTxt(s){
 }
 function filtersSummary(){
   const parts=[], q=$('search').value.trim(), fg=$('fGest').value;
-  if(selVendedor.size) parts.push('Vendedor/sede: '+[...selVendedor].join(', '));
   if(selSegm.size) parts.push('Segmentación: '+[...selSegm].join(', '));
   if(selAging.size) parts.push('Vencimiento: '+AG.filter(a=>selAging.has(a[0])).map(a=>a[0]+' días').join(', '));
   if(q) parts.push('Búsqueda: "'+q+'"');
@@ -745,8 +744,8 @@ function exportPdf(){
   doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(90,100,115);
   doc.text(pdfTxt('Generado el '+fdatetime(new Date())+(dataSource.info?'   |   Datos: '+dataSource.fname+' - '+dataSource.info:'')),M,M+12);
   const fl=filtersSummary();
-  const ftxt=doc.splitTextToSize(pdfTxt('Filtros aplicados: '+(fl.length?fl.join('   |   '):'ninguno (cartera completa)')),W-2*M);
-  doc.text(ftxt,M,M+17);
+  const ftxt=fl.length?doc.splitTextToSize(pdfTxt('Filtros aplicados: '+fl.join('   |   ')),W-2*M):[];
+  if(ftxt.length) doc.text(ftxt,M,M+17);
   let y=M+17+ftxt.length*4;
   if(selAging.size){ doc.text('Los importes incluyen solo los comprobantes de los tramos seleccionados.',M,y); y+=4; }
   const tot=arr.reduce((s,c)=>s+c.saldo,0), tb=sumBrk(arr);
@@ -765,12 +764,12 @@ function exportPdf(){
     doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(90,100,115);
     doc.text(list.length+' cliente'+(list.length!==1?'s':'')+'  |  '+money(sub),M+2+nmW+4,y+4.8);
     doc.text(pdfTxt(cols.filter(a=>vb[a[0]]).map(a=>a[0]+': '+money(vb[a[0]])).join('    ')),W-M-2,y+4.8,{align:'right'});
-    const colStyles={0:{cellWidth:'auto'},1:{cellWidth:16},[2+cols.length]:{halign:'right',cellWidth:28},[3+cols.length]:{halign:'right',cellWidth:12},[4+cols.length]:{halign:'right',cellWidth:16},[5+cols.length]:{cellWidth:34}};
+    const colStyles={0:{cellWidth:'auto'},1:{cellWidth:16},[2+cols.length]:{halign:'right',cellWidth:28},[3+cols.length]:{halign:'right',cellWidth:12},[4+cols.length]:{halign:'right',cellWidth:16},[5+cols.length]:{halign:'right',cellWidth:18}};
     cols.forEach((a,i)=>colStyles[2+i]={halign:'right',cellWidth:26});
     doc.autoTable({
       startY:y+7,
-      head:[['Cliente','Cód.',...cols.map(a=>a[0]+' días'),'Total','Comp.','Días máx.','Gestión']],
-      body:list.map(c=>[pdfTxt(c.rs),String(c.cod),...cols.map(a=>fm(c.brk[a[0]])),money(c.saldo),String(c.nComp),String(c.dvmax),state.casos[c.key]?pdfTxt(state.casos[c.key].estado):'-']),
+      head:[['Cliente','Cód.',...cols.map(a=>a[0]+' días'),'Total','Comp.','Días máx.','%']],
+      body:list.map(c=>[pdfTxt(c.rs),String(c.cod),...cols.map(a=>fm(c.brk[a[0]])),money(c.saldo),String(c.nComp),String(c.dvmax),sub?(c.saldo/sub*100).toLocaleString('es-AR',{minimumFractionDigits:1,maximumFractionDigits:1})+'%':'-']),
       theme:'grid',
       styles:{font:'helvetica',fontSize:8,cellPadding:1.4,lineColor:[225,229,235],lineWidth:0.15,textColor:[26,32,44],overflow:'ellipsize'},
       headStyles:{fillColor:[255,255,255],textColor:[90,100,115],fontStyle:'bold'},
@@ -779,7 +778,7 @@ function exportPdf(){
       showHead:'everyPage',
       didParseCell:d=>{
         const k=d.column.index-2;
-        if(d.section==='head'&&d.column.index>=2&&d.column.index<=4+cols.length) d.cell.styles.halign='right';
+        if(d.section==='head'&&d.column.index>=2&&d.column.index<=5+cols.length) d.cell.styles.halign='right';
         if(k>=0&&k<cols.length&&(d.section==='head'||d.cell.raw!=='-')) d.cell.styles.textColor=rgb(cols[k][1]);
         if(d.section==='body'&&d.column.index===2+cols.length) d.cell.styles.fontStyle='bold';
       }
