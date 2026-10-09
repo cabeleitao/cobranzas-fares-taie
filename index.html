@@ -127,6 +127,13 @@
   .flagdot{color:var(--gold);font-size:11px;font-weight:700;margin-left:6px}
 
   .tbl td.num{white-space:nowrap}
+  .modalBg{position:fixed;inset:0;background:rgba(20,24,32,.55);display:flex;align-items:center;justify-content:center;z-index:100;padding:16px}
+  .modal{background:#fff;border-radius:12px;padding:20px 22px;width:420px;max-width:100%;box-shadow:0 12px 40px rgba(0,0,0,.25)}
+  .modal h3{margin:0 0 12px;font-size:15px}
+  .modal select{width:100%;font-family:var(--sans);font-size:13px;border:1px solid var(--line);border-radius:8px;padding:9px 10px;background:#fff}
+  .modal .pickInfo{margin:8px 2px 14px;font-size:12px;color:var(--muted);min-height:16px}
+  .modal .modalBtns{display:flex;justify-content:flex-end;gap:8px}
+  .btn.danger{background:#B5352A;border-color:#B5352A;color:#fff}
   input.ventaInput{font-family:var(--sans);font-size:13px;border:1px solid var(--line);border-radius:7px;padding:6px 9px;width:140px;text-align:right}
   tfoot td{font-weight:800;background:#FAFBFC;border-top:2px solid var(--line);border-bottom:none!important}
   .coef{font-weight:700}
@@ -185,7 +192,7 @@
 <body>
 
 <header>
-  <h1>Gestión de Cobranzas <span>· Cuenta Corriente</span> <span id="ver" style="font-size:11px;margin-left:6px" title="Versión del archivo">v2026.10.09-a</span></h1>
+  <h1>Gestión de Cobranzas <span>· Cuenta Corriente</span> <span id="ver" style="font-size:11px;margin-left:6px" title="Versión del archivo">v2026.10.09-b</span></h1>
   <div class="tabs">
     <div class="tab active" data-pane="cartera">Cartera</div>
     <div class="tab" data-pane="ventas">Ventas</div>
@@ -311,7 +318,7 @@
       <input type="text" id="infSearch" placeholder="Buscar razón social…" style="display:none">
       <span style="flex:1"></span>
       <button type="button" class="btn ghost" id="snapTc" style="display:none">Tipo de cambio de esta foto</button>
-      <button type="button" class="btn ghost" id="snapDel" style="display:none">Eliminar esta foto</button>
+      <button type="button" class="btn ghost" id="snapDel" style="display:none">Eliminar una foto…</button>
       <button type="button" class="btn out" id="snapBtn">Tomar foto de hoy</button>
     </div>
     <div class="inf" id="infBody"></div>
@@ -887,21 +894,34 @@ const r2=x=>Math.round((Number(x)||0)*100)/100;
 
 function ghApi(c,path){return `https://api.github.com/repos/${encodeURIComponent(c.owner)}/${encodeURIComponent(c.repo)}/contents/${path.split('/').map(encodeURIComponent).join('/')}`;}
 function ghHdr(c,extra){return Object.assign({Authorization:`Bearer ${c.token}`,Accept:'application/vnd.github+json'},extra||{});}
+async function ghFetch(url,opts,paso,reintentar){
+  for(let k=0;k<(reintentar?2:1);k++){
+    try{ return await fetch(url,opts); }
+    catch(err){ if(reintentar&&k===0) await new Promise(r=>setTimeout(r,700)); }
+  }
+  throw new Error('No se pudo conectar con GitHub (paso: '+paso+'). Revisá la conexión a internet o si una extensión del navegador (bloqueador de anuncios, antivirus) está bloqueando api.github.com, y probá de nuevo.');
+}
+function ghErr(r,paso,txt){
+  const m={401:'el token no es válido o venció',403:'el token no tiene permiso de escritura sobre el repositorio (Contents: Read and write) o GitHub limitó los pedidos',404:'el token no tiene acceso a este repositorio',409:'el archivo cambió mientras se guardaba, probá de nuevo',422:'el archivo cambió mientras se guardaba, probá de nuevo'}[r.status];
+  return new Error('GitHub respondió '+r.status+' al '+paso+(m?': '+m+'.':'.')+(txt?' '+String(txt).slice(0,120):''));
+}
 async function ghReadJson(c,path){
   const api=ghApi(c,path)+'?ref='+encodeURIComponent(c.branch);
-  const r=await fetch(api,{headers:ghHdr(c)});
+  const r=await ghFetch(api,{headers:ghHdr(c)},'leer '+path,true);
   if(r.status===404) return {sha:null,data:null};
-  if(!r.ok) throw new Error('No se pudo leer '+path+' (status '+r.status+').');
+  if(!r.ok) throw ghErr(r,'leer '+path);
   const meta=await r.json();
-  const raw=await fetch(api,{headers:ghHdr(c,{Accept:'application/vnd.github.raw+json'})});
-  if(!raw.ok) throw new Error('No se pudo leer el contenido de '+path+' (status '+raw.status+').');
+  // Hasta 1 MB GitHub devuelve el contenido en la misma respuesta; si no, se pide aparte
+  if(meta.content&&meta.encoding==='base64') return {sha:meta.sha,data:JSON.parse(decodeURIComponent(escape(atob(meta.content.replace(/\s/g,'')))))};
+  const raw=await ghFetch(api,{headers:ghHdr(c,{Accept:'application/vnd.github.raw+json'})},'leer el contenido de '+path,true);
+  if(!raw.ok) throw ghErr(raw,'leer el contenido de '+path);
   return {sha:meta.sha,data:await raw.json()};
 }
 async function ghWriteJson(c,path,obj,sha,message){
   const body={message,content:btoa(unescape(encodeURIComponent(JSON.stringify(obj)))),branch:c.branch};
   if(sha) body.sha=sha;
-  const r=await fetch(ghApi(c,path),{method:'PUT',headers:ghHdr(c,{'Content-Type':'application/json'}),body:JSON.stringify(body)});
-  if(!r.ok){ const t=await r.text(); throw new Error('GitHub respondió '+r.status+': '+t.slice(0,200)); }
+  const r=await ghFetch(ghApi(c,path),{method:'PUT',headers:ghHdr(c,{'Content-Type':'application/json'}),body:JSON.stringify(body)},'guardar '+path,false);
+  if(!r.ok){ const t=await r.text(); throw ghErr(r,'guardar '+path,t); }
 }
 function snapsPath(c){const i=c.path.lastIndexOf('/');return (i>=0?c.path.slice(0,i+1):'')+SNAPFILE;}
 
@@ -1159,12 +1179,32 @@ async function editTc(){
   }catch(err){ alert('No se pudo guardar el tipo de cambio: '+(err.message||err)); }
   finally{ btn.disabled=false; }
 }
+// Ventana para elegir una foto de la lista (por nombre y fecha)
+function pickFoto(titulo,textoOk,defId){
+  return new Promise(resolve=>{
+    const bg=document.createElement('div'); bg.className='modalBg';
+    const opts=fotos.map(f=>`<option value="${esc(f.id)}"${f.id===defId?' selected':''}>${esc(fdatetime(f.fecha))} · ${esc(f.etiqueta||'sin nombre')}</option>`).reverse().join('');
+    bg.innerHTML=`<div class="modal"><h3>${esc(titulo)}</h3><select id="pickSel">${opts}</select><div class="pickInfo" id="pickInfo"></div><div class="modalBtns"><button type="button" class="btn ghost" id="pickNo">Cancelar</button><button type="button" class="btn danger" id="pickOk">${esc(textoOk)}</button></div></div>`;
+    document.body.appendChild(bg);
+    const sel=bg.querySelector('#pickSel'), info=bg.querySelector('#pickInfo');
+    const upd=()=>{ const f=fotos.find(x=>x.id===sel.value); info.textContent=f?('Datos: '+(f.fuente||'—')+(f.tc?' · tipo de cambio $'+f.tc:'')):''; };
+    upd(); sel.addEventListener('change',upd);
+    const onKey=e=>{ if(e.key==='Escape') close(null); };
+    const close=v=>{ document.removeEventListener('keydown',onKey); bg.remove(); resolve(v); };
+    document.addEventListener('keydown',onKey);
+    bg.querySelector('#pickNo').onclick=()=>close(null);
+    bg.querySelector('#pickOk').onclick=()=>close(sel.value);
+    bg.addEventListener('click',e=>{ if(e.target===bg) close(null); });
+    sel.focus();
+  });
+}
 async function deleteSnapshot(){
   if(!fotos.length) return;
   const cfg=ghLoad();
   if(!ghConfigured()){ alert('Para eliminar fotos hace falta la publicación a GitHub configurada (pestaña Cartera, ⚙ Configuración → Configurar publicación).'); return; }
-  const f=fotos[baseIndex()];
-  if(!confirm('¿Eliminar la foto "'+(f.etiqueta||'')+'" del '+fdate(f.fecha)+'? No se puede deshacer.')) return;
+  const id=await pickFoto('¿Qué foto querés eliminar?','Eliminar esta foto',fotos[baseIndex()].id);
+  if(!id) return;
+  const f=fotos.find(x=>x.id===id); if(!f) return;
   const btn=$('snapDel'); btn.disabled=true;
   try{
     const path=snapsPath(cfg);
@@ -1172,7 +1212,7 @@ async function deleteSnapshot(){
     const list=((cur.data&&cur.data.fotos)||[]).filter(x=>x.id!==f.id);
     await ghWriteJson(cfg,path,{version:1,fotos:list},cur.sha,'Eliminar foto de cartera — '+(f.etiqueta||fdate(f.fecha)));
     fotos=list; infBase=null; renderInformes();
-  }catch(err){ alert('No se pudo eliminar: '+(err.message||err)); }
+  }catch(err){ alert('No se pudo eliminar la foto: '+(err.message||err)); }
   finally{ btn.disabled=false; }
 }
 $('infViews').addEventListener('click',e=>{const b=e.target.closest('[data-mode]');if(!b)return;infMode=b.dataset.mode;renderInformes();});
