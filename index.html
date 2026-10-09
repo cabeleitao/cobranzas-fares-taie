@@ -139,7 +139,7 @@
   .infViews button{font-family:var(--sans);font-size:13px;font-weight:600;border:none;background:transparent;color:var(--muted);padding:8px 14px;cursor:pointer}
   .infViews button.on{background:var(--ink);color:#fff}
   .infBar select,.infBar input[type=text]{font-family:var(--sans);font-size:13px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface);color:var(--ink)}
-  .inf{--bg:#0e0e0d;--surface:#181817;--surface2:#222220;--border:#2a2a28;--text:#f0ede6;--text2:#a8a59e;--text3:#666562;--blue:#2a78d6;--green:#1baf7a;--amber:#eda100;--red:#e34948;
+  .inf{--bg:#3b3f46;--surface:#454a52;--surface2:#575d67;--border:#5c626c;--text:#f4f5f7;--text2:#d0d4db;--text3:#a0a7b2;--blue:#6aa7f5;--green:#34c88f;--amber:#f2b01e;--red:#f0706e;
     background:var(--bg);color:var(--text);font-family:'Inter',var(--sans);border-radius:14px;padding:28px 32px 32px;font-size:12px}
   .inf .header{margin-bottom:22px}
   .inf .label{font-size:10px;font-weight:500;color:var(--text3);letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px}
@@ -158,8 +158,13 @@
   .inf th{color:var(--text3);font-weight:500;padding:7px 11px;text-align:left;background:transparent;text-transform:none;letter-spacing:0;font-size:12px;cursor:default;border-bottom:none}
   .inf th:hover{color:var(--text3)}
   .inf th.r{text-align:right} .inf th.c{text-align:center}
-  .inf tbody tr{border-bottom:.5px solid #1a1a18}
-  .inf tbody tr:hover{background:rgba(255,255,255,.02)}
+  .inf tbody tr{border-bottom:.5px solid rgba(255,255,255,.09)}
+  .inf tbody tr:hover{background:rgba(255,255,255,.04)}
+  .inf tr.split{cursor:pointer}
+  .inf tr.child td{background:rgba(0,0,0,.14)}
+  .inf .exp{display:inline-block;width:14px;color:var(--text3);font-size:10px}
+  .inf th.grp{text-align:center;font-weight:600;padding-bottom:5px}
+  .inf thead th{vertical-align:bottom}
   .inf td{padding:9px 11px;color:var(--text2);vertical-align:middle;border-bottom:none}
   .inf td.r{text-align:right} .inf td.c{text-align:center}
   .inf td.hi{color:var(--text);font-weight:500}
@@ -179,7 +184,7 @@
 <body>
 
 <header>
-  <h1>Gestión de Cobranzas <span>· Cuenta Corriente</span></h1>
+  <h1>Gestión de Cobranzas <span>· Cuenta Corriente</span> <span id="ver" style="font-size:11px;margin-left:6px" title="Versión del archivo">v2026.10.08-d</span></h1>
   <div class="tabs">
     <div class="tab active" data-pane="cartera">Cartera</div>
     <div class="tab" data-pane="ventas">Ventas</div>
@@ -301,6 +306,7 @@
       <select id="infBase" title="Foto que se toma como actual"></select>
       <input type="text" id="infSearch" placeholder="Buscar razón social…" style="display:none">
       <span style="flex:1"></span>
+      <button type="button" class="btn ghost" id="snapTc" style="display:none">Tipo de cambio de esta foto</button>
       <button type="button" class="btn ghost" id="snapDel" style="display:none">Eliminar esta foto</button>
       <button type="button" class="btn out" id="snapBtn">Tomar foto de hoy</button>
     </div>
@@ -323,7 +329,7 @@ let selAging=new Set(), selVendedor=new Set(), selSegm=new Set();
 let ventasVenNames=[], ventasDeudaByVen={};
 let state=load();
 
-function load(){ try{const s=JSON.parse(localStorage.getItem(LSKEY)); return {ventas:(s&&s.ventas)||{}};}catch(e){return {ventas:{}};} }
+function load(){ try{const s=JSON.parse(localStorage.getItem(LSKEY)); return {ventas:(s&&s.ventas)||{},tc:(s&&s.tc)||null};}catch(e){return {ventas:{},tc:null};} }
 function save(){ try{localStorage.setItem(LSKEY,JSON.stringify(state));}catch(e){} }
 
 const code=s=>String(s==null?'':s).split(' - ')[0].trim();
@@ -827,7 +833,7 @@ $('expFiltrado').addEventListener('click',expFiltrado);
 
 // ==== FOTOS / INFORMES ====
 const SNAPFILE='snapshots.json';
-let fotos=[], infMode='sede', infBase=null;
+let fotos=[], infMode='sede', infBase=null, infExp=new Set();
 const r2=x=>Math.round((Number(x)||0)*100)/100;
 
 function ghApi(c,path){return `https://api.github.com/repos/${encodeURIComponent(c.owner)}/${encodeURIComponent(c.repo)}/contents/${path.split('/').map(encodeURIComponent).join('/')}`;}
@@ -853,25 +859,27 @@ function snapsPath(c){const i=c.path.lastIndexOf('/');return (i>=0?c.path.slice(
 // Una foto congela, por cliente y sede: deuda por tramo (pesos), deuda por tramo (moneda extranjera) y comprobantes,
 // más las ventas 12m que estaban cargadas en ese momento.
 // fila = [cod, razón social, sede, segmento, 0-30, 31-60, 61-90, +90, ext 0-30, ext 31-60, ext 61-90, ext +90, comprobantes]
-function buildSnapshot(label){
+function buildSnapshot(label,tc){
   const rows=Object.values(clientes).map(c=>[c.cod,c.rs,c.vendedor,c.segLabel,...AG.map(a=>r2(c.brk[a[0]])),...AG.map(a=>r2(c.extBrk[a[0]])),c.nComp]);
   const ventas={};
   new Set(Object.values(clientes).map(c=>c.vendedor)).forEach(v=>{ if(state.ventas[v]!=null) ventas[v]=state.ventas[v]; });
   const now=new Date();
-  return {id:now.toISOString(),fecha:now.toISOString(),etiqueta:label,fuente:dataSource.fname+(dataSource.info?' · '+dataSource.info:''),ventas,rows};
+  return {id:now.toISOString(),fecha:now.toISOString(),etiqueta:label,tc:tc||null,fuente:dataSource.fname+(dataSource.info?' · '+dataSource.info:''),ventas,rows};
 }
 function snapAgg(f,mode){
   const m=new Map();
   f.rows.forEach(r=>{
     const key=mode==='sede'?r[2]:mode==='segmento'?(r[3]||'Sin segmentar'):r[0];
     let o=m.get(key);
-    if(!o){ o={key,name:mode==='cliente'?r[1]:key,deuda:0,b90:0,ext:0,brk:[0,0,0,0],sedes:new Set()}; m.set(key,o); }
-    for(let i=0;i<4;i++){ o.brk[i]+=r[4+i]; o.ext+=r[8+i]; }
+    if(!o){ o={key,name:mode==='cliente'?r[1]:key,deuda:0,ext:0,brk:[0,0,0,0],extBrk:[0,0,0,0],sedes:new Set(),extNames:new Set()}; m.set(key,o); }
+    for(let i=0;i<4;i++){ o.brk[i]+=r[4+i]; o.extBrk[i]+=r[8+i]; o.ext+=r[8+i]; }
+    if(r[8]+r[9]+r[10]+r[11]>0) o.extNames.add(r[1]);
     o.sedes.add(r[2]);
   });
-  m.forEach(o=>{ o.deuda=o.brk.reduce((a,b)=>a+b,0); o.b90=o.brk[3]; });
+  m.forEach(o=>{ o.deuda=o.brk.reduce((a,b)=>a+b,0); });
   return m;
 }
+function shortName(n){ return String(n).replace(/\s+(S\.?\s?A\.?S?\.?|S\.?R\.?L\.?)\s*$/i,'').toLowerCase().replace(/(^|\s)(\p{L})/gu,(x,a,b)=>a+b.toUpperCase()); }
 const mfmt=x=>(x/1e6).toLocaleString('es-AR',{minimumFractionDigits:1,maximumFractionDigits:1})+' M';
 const pfmt=(x,d)=>x.toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d})+'%';
 function ratioColor(r){ if(r==null||r===0) return 'var(--text3)'; if(r<=10) return 'var(--green)'; if(r<=20) return 'var(--amber)'; return 'var(--red)'; }
@@ -884,7 +892,7 @@ function renderInformes(){
   const box=$('infBody'), sel=$('infBase');
   $('infViews').querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.mode===infMode));
   $('infSearch').style.display=infMode==='cliente'?'':'none';
-  $('snapDel').style.display=fotos.length?'':'none';
+  ['snapDel','snapTc'].forEach(id=>$(id).style.display=fotos.length?'':'none');
   sel.style.display=fotos.length?'':'none';
   if(!fotos.length){
     box.innerHTML=`<div class="emptyInf">Todavía no hay fotos guardadas.<br><span style="font-size:12px">Cargá el Excel en Cartera, completá las ventas en la pestaña Ventas y tocá "Tomar foto de hoy".</span></div>`;
@@ -894,79 +902,118 @@ function renderInformes(){
   sel.innerHTML=fotos.map((f,i)=>`<option value="${esc(f.id)}" ${i===bi?'selected':''}>${esc(fdate(f.fecha))} · ${esc(f.etiqueta||'')}</option>`).reverse().join('');
   const base=fotos[bi], p1=fotos[bi-1]||null, p2=fotos[bi-2]||null;
   const isSede=infMode==='sede', isCli=infMode==='cliente';
-  const A=snapAgg(base,infMode), B=p1?snapAgg(p1,infMode):new Map(), C=p2?snapAgg(p2,infMode):new Map();
-  const Z={name:'',deuda:0,b90:0,ext:0,sedes:new Set()};
+  const tcB=base.tc>0?base.tc:null;
+  const tcTxt=tcB?tcB.toLocaleString('es-AR',{minimumFractionDigits:0,maximumFractionDigits:2}):'';
+  const cols=[p2,p1,base].filter(Boolean).map(f=>({f,m:snapAgg(f,infMode)}));   // de la foto más vieja a la más nueva
+  const nC=cols.length, last=nC-1, A=cols[last].m;
+  const Z={name:'',deuda:0,ext:0,brk:[0,0,0,0],extBrk:[0,0,0,0],sedes:new Set(),extNames:new Set()};
   const fmtD=isCli?money:mfmt;
+  const fmtT=isCli?(x=>Math.round(x/1000).toLocaleString('es-AR')):(x=>(x/1e6).toLocaleString('es-AR',{minimumFractionDigits:1,maximumFractionDigits:1}));
+  const dash='<span class="muted">—</span>';
   const ventasOf=(f,key)=>(f&&isSede&&f.ventas&&f.ventas[key]>0)?f.ventas[key]:null;
-  const ratioAt=(f,o,key)=>{const v=ventasOf(f,key);return v?(o.deuda/v*100):null;};
-  const gRatio=(f,agg)=>{ if(!isSede||!f) return null; let v=0,d=0; Object.keys(f.ventas||{}).forEach(k=>{ if(f.ventas[k]>0){ v+=f.ventas[k]; d+=(agg.get(k)?agg.get(k).deuda:0); } }); return v?d/v*100:null; };
+  // Vista de una fila en una foto. con=true suma la deuda en US$ pesificada al tipo de cambio de ESA foto.
+  const view=(f,o,key,con)=>{
+    const e=con&&o.ext>0;
+    if(e&&!(f.tc>0)) return null;
+    const brk=o.brk.map((x,i)=>x+(e?o.extBrk[i]*f.tc:0));
+    const deuda=brk.reduce((a,b)=>a+b,0), v=ventasOf(f,key);
+    return {deuda,brk,ratio:v?deuda/v*100:null,ventas:v};
+  };
+  const trendFor=vs=>{ if(vs.length<2) return null; const a=vs[vs.length-1], b=vs[vs.length-2]; if(!a||!b) return null; return (a.ratio!=null&&b.ratio!=null)?trendOf(a.ratio,b.ratio,0.05):trendOf(a.deuda,b.deuda,1); };
+  const exNm=set=>{const a=[...set].map(shortName);return a.length===1?a[0]:a.length===2?a.join(' y '):'deuda en US$';};
 
-  const all=[...new Set([...A.keys(),...B.keys(),...C.keys()])].map(key=>{
-    const any=A.get(key)||B.get(key)||C.get(key);
-    const a=A.get(key)||Z, b=B.get(key)||Z, c=C.get(key)||Z;
-    const ra=ratioAt(base,a,key), rb=p1?ratioAt(p1,b,key):null, rc=p2?ratioAt(p2,c,key):null;
-    let tr=null;
-    if(p1) tr=(ra!=null&&rb!=null)?trendOf(ra,rb,0.05):trendOf(a.deuda,b.deuda,1);
-    return {key,name:any.name,sub:isCli?[...any.sedes].join(', '):'',a,b,c,ra,rb,rc,tr,ventas:ventasOf(base,key)};
-  }).filter(r=>r.a.deuda>0||r.a.ext>0||r.b.deuda>0||r.c.deuda>0)
-    .sort((x,y)=>y.a.deuda-x.a.deuda||y.b.deuda-x.b.deuda||x.name.localeCompare(y.name,'es'));
+  const rows=[...new Set(cols.flatMap(c=>[...c.m.keys()]))].map(key=>{
+    let any=null; cols.forEach(c=>{const o=c.m.get(key); if(o) any=o;});
+    const hasExt=isSede&&cols.some(c=>{const o=c.m.get(key);return o&&o.ext>0;});
+    const split=hasExt&&!!tcB;      // sede con deuda en US$: línea "con" (pesificada) + línea "sin"
+    const ens=new Set(); cols.forEach(c=>{const o=c.m.get(key); if(o) o.extNames.forEach(n=>ens.add(n));});
+    const main=cols.map(c=>view(c.f,c.m.get(key)||Z,key,split));
+    const pes=split?cols.map(c=>view(c.f,c.m.get(key)||Z,key,false)):main;
+    return {key,name:any.name,sub:isCli?[...any.sedes].join(', '):'',split,exName:exNm(ens),ext:(A.get(key)||Z).ext,main,pes,tr:trendFor(main),trP:split?trendFor(pes):null};
+  }).filter(r=>r.main.some(v=>v&&v.deuda>0)||r.ext>0)
+    .sort((x,y)=>((y.main[last]||{deuda:0}).deuda-(x.main[last]||{deuda:0}).deuda)||x.name.localeCompare(y.name,'es'));
 
-  const totDeuda=[...A.values()].reduce((s,o)=>s+o.deuda,0), tot90=[...A.values()].reduce((s,o)=>s+o.b90,0), totExt=[...A.values()].reduce((s,o)=>s+o.ext,0);
-  const mejor=all.filter(r=>r.tr==='dn'), peor=all.filter(r=>r.tr==='up'), conTr=all.filter(r=>r.tr).length;
+  const tot=(ci,w)=>rows.reduce((s,r)=>s+(r[w][ci]?r[w][ci].deuda:0),0);
+  const totBrk=(ci,w)=>[0,1,2,3].map(i=>rows.reduce((s,r)=>s+(r[w][ci]?r[w][ci].brk[i]:0),0));
+  const totCon=tot(last,'main'), totPes=tot(last,'pes'), tot90=totBrk(last,'main')[3];
+  const totExt=[...A.values()].reduce((s,o)=>s+o.ext,0);
+  const anySplit=rows.some(r=>r.split);
+  const rowBy=new Map(rows.map(r=>[r.key,r]));
+  const gR=(ci,w)=>{ if(!isSede) return null; const f=cols[ci].f; let v=0,d=0,bad=false;
+    Object.keys(f.ventas||{}).forEach(k=>{ if(f.ventas[k]>0){ v+=f.ventas[k]; const r=rowBy.get(k); if(r){ const x=r[w][ci]; if(x) d+=x.deuda; else bad=true; } } });
+    return (v&&!bad)?d/v*100:null; };
+  const gA=gR(last,'main'), gAp=anySplit?gR(last,'pes'):null;
+  const mejor=rows.filter(r=>r.tr==='dn'), peor=rows.filter(r=>r.tr==='up'), conTr=rows.filter(r=>r.tr).length;
   const noun={sede:'Sedes',segmento:'Segmentos',cliente:'Clientes'}[infMode];
-  const gA=gRatio(base,A), gB=p1?gRatio(p1,B):null, gC=p2?gRatio(p2,C):null;
 
-  const k1=`<div class="kpi"><div class="kpi-l">Deuda vencida total (pesos)</div><div class="kpi-v">${mfmt(totDeuda)}</div><div class="kpi-s muted">foto del ${esc(fdate(base.fecha))}</div></div>`;
+  const k1=`<div class="kpi"><div class="kpi-l">Deuda vencida total${anySplit?' (con US$ pesificados)':' (pesos)'}</div><div class="kpi-v">${mfmt(totCon)}</div><div class="kpi-s muted">foto del ${esc(fdate(base.fecha))}${anySplit?`<br>solo pesos: ${mfmt(totPes)}`:''}</div></div>`;
   const k2=isSede
-    ?`<div class="kpi"><div class="kpi-l">Ratio global deuda / ventas</div><div class="kpi-v" style="color:${ratioColor(gA)}">${gA==null?'—':pfmt(gA,1)}</div><div class="kpi-s muted">${gA==null?'sin ventas cargadas en esta foto':'sobre las ventas 12 meses cargadas'}</div></div>`
-    :`<div class="kpi"><div class="kpi-l">Deuda en +90 días</div><div class="kpi-v">${mfmt(tot90)}</div><div class="kpi-s muted">${totDeuda?pfmt(tot90/totDeuda*100,1):'—'} de la deuda total</div></div>`;
-  const k3=`<div class="kpi" style="border-color:var(--green);background:rgba(27,175,122,0.04)"><div class="kpi-l">${noun} que mejoraron</div><div class="kpi-v good">${p1?mejor.length+' / '+conTr:'—'}</div><div class="kpi-s good">${p1?'vs foto del '+esc(fdate(p1.fecha)):'es la primera foto'}</div></div>`;
-  const k4=`<div class="kpi" style="border-color:var(--red);background:rgba(227,73,72,0.04)"><div class="kpi-l">${noun} que empeoraron</div><div class="kpi-v bad">${p1?peor.length+' / '+conTr:'—'}</div><div class="kpi-s bad">${p1&&peor.length?esc(peor.slice(0,3).map(r=>r.name).join(', '))+(peor.length>3?'…':''):'&nbsp;'}</div></div>`;
-  const k5=`<div class="kpi" style="border-color:var(--blue);background:rgba(42,120,214,0.05)"><div class="kpi-l">Deuda en moneda extranjera (EXT)</div><div class="kpi-v" style="color:var(--blue)">${usd(totExt)}</div><div class="kpi-s muted">aparte: no entra en pesos ni en ratios</div></div>`;
+    ?`<div class="kpi"><div class="kpi-l">Ratio global deuda / ventas</div><div class="kpi-v" style="color:${ratioColor(gA)}">${gA==null?'—':pfmt(gA,1)}</div><div class="kpi-s muted">${gA==null?'sin ventas cargadas en esta foto':'sobre las ventas 12 meses cargadas'}${gAp!=null?`<br>sin US$ pesificados: <b style="color:${ratioColor(gAp)}">${pfmt(gAp,1)}</b>`:''}</div></div>`
+    :`<div class="kpi"><div class="kpi-l">Deuda en +90 días</div><div class="kpi-v">${mfmt(tot90)}</div><div class="kpi-s muted">${totCon?pfmt(tot90/totCon*100,1):'—'} de la deuda total</div></div>`;
+  const k3=`<div class="kpi" style="border-color:var(--green);background:rgba(52,200,143,0.07)"><div class="kpi-l">${noun} que mejoraron</div><div class="kpi-v good">${p1?mejor.length+' / '+conTr:'—'}</div><div class="kpi-s good">${p1?'vs foto del '+esc(fdate(p1.fecha)):'es la primera foto'}</div></div>`;
+  const k4=`<div class="kpi" style="border-color:var(--red);background:rgba(240,112,110,0.07)"><div class="kpi-l">${noun} que empeoraron</div><div class="kpi-v bad">${p1?peor.length+' / '+conTr:'—'}</div><div class="kpi-s bad">${p1&&peor.length?esc(peor.slice(0,3).map(r=>r.name).join(', '))+(peor.length>3?'…':''):'&nbsp;'}</div></div>`;
+  const k5=`<div class="kpi" style="border-color:var(--blue);background:rgba(106,167,245,0.08)"><div class="kpi-l">Deuda en moneda extranjera (EXT)</div><div class="kpi-v" style="color:var(--blue)">${usd(totExt)}</div><div class="kpi-s muted">${tcB&&totExt>0?'≈ '+mfmt(totExt*tcB)+' pesificados a $'+tcTxt:'aparte de los totales en pesos'}</div></div>`;
 
-  const legend=`<div class="legend-row">${p2?`<div class="leg"><div class="leg-dot" style="background:var(--text3)"></div>${fotoLabel(p2)}</div>`:''}${p1?`<div class="leg"><div class="leg-dot" style="background:var(--amber)"></div>${fotoLabel(p1)}</div>`:''}<div class="leg"><div class="leg-dot" style="background:var(--blue)"></div>${fotoLabel(base)} (foto base)</div><span style="margin-left:auto">↓ mejor &nbsp;·&nbsp; ↑ peor${isSede?' &nbsp;·&nbsp; barra = ratio actual':' &nbsp;·&nbsp; barra = % de la deuda total'}</span></div>`;
+  const lab=f=>fotoLabel(f);
+  const legend=`<div class="legend-row">${p2?`<div class="leg"><div class="leg-dot" style="background:var(--text3)"></div>${lab(p2)}</div>`:''}${p1?`<div class="leg"><div class="leg-dot" style="background:var(--amber)"></div>${lab(p1)}</div>`:''}<div class="leg"><div class="leg-dot" style="background:var(--blue)"></div>${lab(base)} (foto base)</div><span style="margin-left:auto">↓ mejor &nbsp;·&nbsp; ↑ peor${isSede?' &nbsp;·&nbsp; barra = ratio actual':' &nbsp;·&nbsp; barra = % de la deuda total'}</span></div>`;
 
   const q=norm($('infSearch').value);
-  let shown=(isCli&&q)?all.filter(r=>norm(r.name).includes(q)||norm(r.key).includes(q)):all;
+  let shown=(isCli&&q)?rows.filter(r=>norm(r.name).includes(q)||norm(r.key).includes(q)):rows;
   const LIMIT=500, truncated=shown.length>LIMIT; if(truncated) shown=shown.slice(0,LIMIT);
+  const maxR=isSede?Math.max(10,Math.ceil(Math.max(0,...shown.map(r=>(r.main[last]&&r.main[last].ratio)||0))*1.1/5)*5):0;
+  const maxShare=Math.max(1,...shown.map(r=>totCon&&r.main[last]?r.main[last].deuda/totCon*100:0));
+  const yr=new Date(base.fecha).getFullYear();
+  const dates=cols.map(c=>esc(shortDate(c.f.fecha,yr)));
+  const prevIdx=[...Array(last).keys()];          // columnas de fotos anteriores, de la más vieja a la más nueva
+  const nCols=1+(isSede?1:0)+1+4*nC+1+1+prevIdx.length+(p1?1:0);
 
-  const maxR=isSede?Math.max(10,Math.ceil(Math.max(0,...shown.map(r=>r.ra||0))*1.1/5)*5):0;
-  const maxShare=Math.max(1,...shown.map(r=>totDeuda?r.a.deuda/totDeuda*100:0));
-  const dash='<span class="muted">—</span>';
-  const th1=p1?`<th class="${isSede?'r':'r'}">${esc(shortDate(p1.fecha,new Date(base.fecha).getFullYear()))}</th>`:'';
-  const th2=p2?`<th class="r">${esc(shortDate(p2.fecha,new Date(base.fecha).getFullYear()))}</th>`:'';
-  const head=`<tr><th>${isSede?'Sede':infMode==='segmento'?'Segmento':'Razón social'}</th>${isSede?'<th class="r">Ventas 12m</th>':''}<th class="r">Deuda</th><th class="r">+90</th><th class="r">US$ (EXT)</th><th>${isSede?'Ratio actual':'% del total'}</th>${th2}${th1}${p1?'<th class="c">Tend.</th>':''}</tr>`;
-  // (las columnas de fotos anteriores van de la más vieja a la más nueva, como en el informe original)
-  const rowsHtml=shown.map(r=>{
-    const deudaCell=r.a.deuda>0?fmtD(r.a.deuda):(r.a.ext>0?dash:'<span class="good">sin deuda</span>');
+  const head=`<tr><th rowspan="2">${isSede?'Sede':infMode==='segmento'?'Segmento':'Razón social'}</th>${isSede?'<th rowspan="2" class="r">Ventas 12m</th>':''}<th rowspan="2" class="r">Deuda</th>`
+    +AG.map(a=>`<th colspan="${nC}" class="c grp" style="color:${a[1]};border-bottom:2px solid ${a[1]}">${a[0]} días</th>`).join('')
+    +`<th rowspan="2" class="r">US$ (EXT)</th><th rowspan="2">${isSede?'Ratio actual':'% del total'}</th>`
+    +prevIdx.map(ci=>`<th rowspan="2" class="r">${dates[ci]}</th>`).join('')+(p1?'<th rowspan="2" class="c">Tend.</th>':'')+`</tr>`
+    +`<tr>${AG.map(()=>dates.map((d,ci)=>`<th class="r"${ci===last?' style="color:var(--text2)"':''}>${d}</th>`).join('')).join('')}</tr>`;
+
+  const rowHtml=(r,isChild)=>{
+    const vs=isChild?r.pes:r.main, vb=vs[last];
+    const nameCell=isChild
+      ?`<span class="muted">↳</span> ${esc(r.name)} <span class="muted">(sin ${esc(r.exName)})</span>`
+      :`${r.split?`<span class="exp">${infExp.has(r.key)?'▼':'▶'}</span>`:''}${esc(r.name)}${r.split?` <span class="muted">(con ${esc(r.exName)})</span>`:''}${r.sub?`<br><span style="font-size:9px;color:var(--text3);font-weight:400">${esc(r.sub)}</span>`:''}`;
+    const deudaCell=vb&&vb.deuda>0?fmtD(vb.deuda):((r.ext>0&&!isChild)?dash:'<span class="good">sin deuda</span>');
+    const tramos=AG.map((a,i)=>vs.map((v,ci)=>{const x=v?v.brk[i]:0;const col=ci===last?'var(--text)':ci===last-1?'var(--text2)':'var(--text3)';return `<td class="r" style="color:${col}">${x>0?fmtT(x):dash}</td>`;}).join('')).join('');
+    const extCell=(!isChild&&r.ext)?`${usd(r.ext)}${tcB?`<br><span style="font-size:9px;color:var(--text3)">≈ ${fmtD(r.ext*tcB)}</span>`:''}`:dash;
     let barCell;
     if(isSede){
-      if(r.ra==null) barCell='<span class="muted">cargar ventas</span>';
-      else{ const bw=Math.min(r.ra/maxR*100,100).toFixed(1), bc=ratioColor(r.ra)==='var(--text3)'?'var(--green)':ratioColor(r.ra); barCell=`<div class="bar-wrap"><div class="bar-bg"><div class="bar-fill" style="width:${bw}%;background:${bc}"></div></div><span class="bar-val" style="color:${bc}">${pfmt(r.ra,1)}</span></div>`; }
+      if(!vb||vb.ratio==null) barCell='<span class="muted">cargar ventas</span>';
+      else{ const bc=ratioColor(vb.ratio)==='var(--text3)'?'var(--green)':ratioColor(vb.ratio); barCell=`<div class="bar-wrap"><div class="bar-bg"><div class="bar-fill" style="width:${Math.min(vb.ratio/maxR*100,100).toFixed(1)}%;background:${bc}"></div></div><span class="bar-val" style="color:${bc}">${pfmt(vb.ratio,1)}</span></div>`; }
     }else{
-      const sh=totDeuda?r.a.deuda/totDeuda*100:0;
+      const sh=totCon&&vb?vb.deuda/totCon*100:0;
       barCell=`<div class="bar-wrap"><div class="bar-bg"><div class="bar-fill" style="width:${(sh/maxShare*100).toFixed(1)}%;background:var(--blue)"></div></div><span class="bar-val" style="color:var(--blue)">${pfmt(sh,1)}</span></div>`;
     }
-    const prevCell=(f,agg,ratio)=>isSede
-      ?`<td class="r" style="color:${ratioColor(ratio)}">${ratio==null?'—':pfmt(ratio,1)}</td>`
-      :`<td class="r">${agg.deuda>0?fmtD(agg.deuda):'—'}</td>`;
-    const t=r.tr?TREND[r.tr]:null;
-    return `<tr><td class="hi">${esc(r.name)}${r.sub?`<br><span style="font-size:9px;color:var(--text3);font-weight:400">${esc(r.sub)}</span>`:''}</td>`
-      +(isSede?`<td class="r">${r.ventas?mfmt(r.ventas):dash}</td>`:'')
-      +`<td class="r">${deudaCell}</td><td class="r">${r.a.b90?fmtD(r.a.b90):dash}</td><td class="r">${r.a.ext?usd(r.a.ext):dash}</td><td>${barCell}</td>`
-      +(p2?prevCell(p2,r.c,r.rc):'')+(p1?prevCell(p1,r.b,r.rb):'')
+    const prev=prevIdx.map(ci=>{const v=vs[ci];return isSede
+      ?`<td class="r" style="color:${ratioColor(v?v.ratio:null)}">${v&&v.ratio!=null?pfmt(v.ratio,1):'—'}</td>`
+      :`<td class="r">${v&&v.deuda>0?fmtD(v.deuda):'—'}</td>`;}).join('');
+    const tr=isChild?r.trP:r.tr, t=tr?TREND[tr]:null;
+    return `<tr class="${isChild?'child':'mainRow'}${(!isChild&&r.split)?' split':''}"${(!isChild&&r.split)?` data-exp="${esc(r.key)}"`:''}><td class="hi">${nameCell}</td>`
+      +(isSede?`<td class="r">${vb&&vb.ventas?mfmt(vb.ventas):dash}</td>`:'')
+      +`<td class="r">${deudaCell}</td>${tramos}<td class="r">${extCell}</td><td>${barCell}</td>${prev}`
       +(p1?`<td class="c ${t?t[1]:'arr-eq'}" style="font-size:14px">${t?t[0]:'—'}</td>`:'')+`</tr>`;
-  }).join('');
+  };
+  const rowsHtml=shown.map(r=>rowHtml(r,false)+((r.split&&infExp.has(r.key))?rowHtml(r,true):'')).join('');
 
-  // fila de totales
   const ventasTot=isSede?Object.values(base.ventas||{}).reduce((s,v)=>s+(v>0?v:0),0):0;
-  const totPrev=(f,agg,g)=>isSede?`<td class="r muted">${g==null?'—':pfmt(g,1)}</td>`:`<td class="r muted">${f?fmtD([...agg.values()].reduce((s,o)=>s+o.deuda,0)):'—'}</td>`;
-  const foot=`<tr><td>TOTAL</td>${isSede?`<td class="r">${ventasTot?mfmt(ventasTot):'—'}</td>`:''}<td class="r">${fmtD(totDeuda)}</td><td class="r">${fmtD(tot90)}</td><td class="r">${totExt?usd(totExt):'—'}</td>`
+  const footTramos=AG.map((a,i)=>cols.map((c,ci)=>{const x=totBrk(ci,'main')[i];const col=ci===last?'var(--text)':ci===last-1?'var(--text2)':'var(--text3)';return `<td class="r" style="color:${col}">${x>0?fmtT(x):dash}</td>`;}).join('')).join('');
+  const footPrev=prevIdx.map(ci=>isSede
+    ?`<td class="r muted">${gR(ci,'main')==null?'—':pfmt(gR(ci,'main'),1)}</td>`
+    :`<td class="r muted">${fmtD(tot(ci,'main'))}</td>`).join('');
+  const foot=`<tr><td>TOTAL</td>${isSede?`<td class="r">${ventasTot?mfmt(ventasTot):'—'}</td>`:''}<td class="r">${fmtD(totCon)}</td>${footTramos}<td class="r">${totExt?usd(totExt):'—'}</td>`
     +`<td>${isSede?(gA==null?'':`<div class="bar-wrap"><div class="bar-bg"><div class="bar-fill" style="width:${Math.min(gA/maxR*100,100).toFixed(1)}%;background:var(--blue)"></div></div><span class="bar-val" style="color:var(--blue)">${pfmt(gA,1)}</span></div>`):'<span class="bar-val" style="color:var(--blue)">100%</span>'}</td>`
-    +(p2?totPrev(p2,C,gC):'')+(p1?totPrev(p1,B,gB):'')+(p1?'<td class="c muted">—</td>':'')+`</tr>`;
+    +footPrev+(p1?'<td class="c muted">—</td>':'')+`</tr>`;
 
   const sinV=isSede?[...A.keys()].filter(k=>!ventasOf(base,k)):[];
-  const notes=[`* Importes en pesos (CTE). La deuda en moneda extranjera (EXT) se muestra aparte y no entra en los ratios ni en los totales en pesos.`];
+  const notes=[`* Importes en pesos (CTE) por tramo de vencimiento, en ${isCli?'miles':'millones'} de $. Cada tramo muestra su evolución foto por foto (de la más vieja a la más nueva).`];
+  if(anySplit) notes.push(`Las sedes con deuda en US$ se muestran con los dólares pesificados al tipo de cambio de cada foto (base: $${tcTxt} por US$). Tocá la fila para ver la misma sede solo con la deuda en pesos.`);
+  if(isSede&&totExt>0&&!tcB) notes.push('Esta foto no tiene tipo de cambio: la deuda en US$ no se suma a la de su sede. Cargalo con "Tipo de cambio de esta foto".');
+  if(!isSede&&totExt>0) notes.push('En esta vista la deuda en US$ se muestra aparte y no se suma a la deuda en pesos.');
   if(isSede&&sinV.length) notes.push(`Sedes sin ventas cargadas en esta foto (no tienen ratio ni entran en el ratio global): ${esc(sinV.join(', '))}.`);
   if(truncated) notes.push(`Se muestran las ${LIMIT} razones sociales con mayor deuda; usá el buscador para ver otras.`);
   if(base.fuente) notes.push(`Datos de la foto base: ${esc(base.fuente)}.`);
@@ -974,7 +1021,7 @@ function renderInformes(){
   box.innerHTML=`<div class="header"><div class="label">Gestión de cobranzas</div><div class="title">Deuda vencida por ${isSede?'sede':infMode==='segmento'?'segmento':'razón social'}</div>
     <div class="sub">Foto base: ${fotoLabel(base)}${isSede?' · ventas 12 meses según esa foto':''}${p1?' · comparada con '+(p2?'las 2 fotos anteriores':'la foto anterior'):' · todavía no hay fotos anteriores para comparar'}</div></div>
     <div class="kpi-row">${k1}${k2}${k3}${k4}${k5}</div>${legend}
-    <div style="overflow-x:auto"><table><thead>${head}</thead><tbody>${rowsHtml||'<tr><td colspan="9" class="muted" style="text-align:center;padding:24px">Sin resultados</td></tr>'}</tbody><tfoot>${foot}</tfoot></table></div>
+    <div style="overflow-x:auto"><table><thead>${head}</thead><tbody>${rowsHtml||`<tr><td colspan="${nCols}" class="muted" style="text-align:center;padding:24px">Sin resultados</td></tr>`}</tbody><tfoot>${foot}</tfoot></table></div>
     <div class="note">${notes.join('<br>')}</div>`;
 }
 function shortDate(iso,refYear){const d=new Date(iso);return d.getDate()+'/'+(d.getMonth()+1)+(d.getFullYear()!==refYear?'/'+String(d.getFullYear()).slice(2):'');}
@@ -990,18 +1037,52 @@ async function takeSnapshot(){
   msg+='\nNombre de la foto:';
   const label=prompt(msg,'Foto del '+fdate(HOY));
   if(label===null) return;
+  const totExt=Object.values(clientes).reduce((s,c)=>s+c.ext,0);
+  let tc=null;
+  if(totExt>0){
+    const last=[...fotos].reverse().find(f=>f.tc>0);
+    const def=state.tc||(last&&last.tc)||'';
+    const t=prompt('Hay deuda en moneda extranjera: '+usd(totExt)+'.\nTipo de cambio ($ por US$) para pesificarla:',def===''?'':String(def).replace('.',','));
+    if(t===null) return;
+    tc=parseNum(t);
+    if(!(tc>0)){ alert('Tipo de cambio inválido. No se guardó la foto.'); return; }
+    state.tc=tc; save();
+  }
   const btn=$('snapBtn'); btn.disabled=true; btn.textContent='Guardando…';
   try{
     const path=snapsPath(cfg);
     const cur=await ghReadJson(cfg,path);
     const list=(cur.data&&Array.isArray(cur.data.fotos))?cur.data.fotos:[];
-    const foto=buildSnapshot(label.trim()||('Foto del '+fdate(HOY)));
+    const foto=buildSnapshot(label.trim()||('Foto del '+fdate(HOY)),tc);
     list.push(foto); list.sort((a,b)=>a.fecha<b.fecha?-1:1);
     await ghWriteJson(cfg,path,{version:1,fotos:list},cur.sha,'Foto de cartera — '+foto.etiqueta);
     fotos=list; infBase=null; renderInformes();
     alert('Foto guardada. Ya figura en Informes.');
   }catch(err){ alert('No se pudo guardar la foto: '+(err.message||err)); }
   finally{ btn.disabled=false; btn.textContent='Tomar foto de hoy'; }
+}
+async function editTc(){
+  if(!fotos.length) return;
+  const cfg=ghLoad();
+  if(!ghConfigured()){ alert('Para guardar el tipo de cambio hace falta la publicación a GitHub configurada (pestaña Cartera, ⚙ Configuración → Configurar publicación).'); return; }
+  const f=fotos[baseIndex()];
+  const def=f.tc||state.tc||'';
+  const t=prompt('Tipo de cambio ($ por US$) de la foto "'+(f.etiqueta||fdate(f.fecha))+'":',def===''?'':String(def).replace('.',','));
+  if(t===null) return;
+  const tc=parseNum(t);
+  if(!(tc>0)){ alert('Tipo de cambio inválido.'); return; }
+  const btn=$('snapTc'); btn.disabled=true;
+  try{
+    const path=snapsPath(cfg);
+    const cur=await ghReadJson(cfg,path);
+    const list=(cur.data&&cur.data.fotos)||[];
+    const g=list.find(x=>x.id===f.id);
+    if(!g) throw new Error('La foto ya no existe en el repositorio.');
+    g.tc=tc;
+    await ghWriteJson(cfg,path,{version:1,fotos:list},cur.sha,'Tipo de cambio de la foto — '+(f.etiqueta||fdate(f.fecha)));
+    fotos=list.slice().sort((a,b)=>a.fecha<b.fecha?-1:1); state.tc=tc; save(); renderInformes();
+  }catch(err){ alert('No se pudo guardar el tipo de cambio: '+(err.message||err)); }
+  finally{ btn.disabled=false; }
 }
 async function deleteSnapshot(){
   if(!fotos.length) return;
@@ -1024,6 +1105,8 @@ $('infBase').addEventListener('change',e=>{infBase=e.target.value;renderInformes
 $('infSearch').addEventListener('input',renderInformes);
 $('snapBtn').addEventListener('click',takeSnapshot);
 $('snapDel').addEventListener('click',deleteSnapshot);
+$('snapTc').addEventListener('click',editTc);
+$('infBody').addEventListener('click',e=>{const tr=e.target.closest('tr[data-exp]');if(!tr)return;const k=tr.dataset.exp;if(infExp.has(k))infExp.delete(k);else infExp.add(k);renderInformes();});
 // ==== /FOTOS / INFORMES ====
 
 fetch('./'+SNAPFILE,{cache:'no-store'})
