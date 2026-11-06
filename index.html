@@ -39,11 +39,18 @@
   .err{display:none;background:#FDECEA;color:var(--red);border:1px solid #F5C2BE;border-radius:8px;padding:10px 14px;margin-bottom:16px;white-space:pre-line;font-size:13px}
   .err.show{display:block}
 
-  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:16px}
   .kpi{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
   .kpi .l{color:var(--muted);font-size:12px;margin-bottom:4px}
   .kpi .n{font-size:22px;font-weight:800}
-  .kpi .n.red{color:var(--red)} .kpi .n.gold{color:var(--gold)} .kpi .n.teal{color:var(--teal)}
+  .kpi .n.red{color:var(--red)} .kpi .n.gold{color:var(--gold)} .kpi .n.teal{color:var(--teal)} .kpi .n.legal{color:#6B4FA3}
+  .kpi .s{color:var(--muted);font-size:11.5px;margin-top:3px}
+  .kpi.click{cursor:pointer;transition:border-color .12s,box-shadow .12s}
+  .kpi.click:hover{border-color:#6B4FA3;box-shadow:0 0 0 2px rgba(107,79,163,.12)}
+  .kpi.click.on{border-color:#6B4FA3;background:#F4F0FA}
+  .segTag{font-size:10.5px;color:var(--muted);margin-top:2px;font-weight:500}
+  .segTag.legal{display:inline-block;background:#EFE9F8;color:#5A3E8F;font-weight:700;border:1px solid #D8CCEC;border-radius:10px;padding:1px 8px}
+  .legalTag{display:inline-block;margin-left:10px;background:#EFE9F8;color:#5A3E8F;font-weight:700;font-size:11px;border:1px solid #D8CCEC;border-radius:10px;padding:1px 9px}
 
   .agingCard{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:20px}
   .agingBar{height:10px;border-radius:20px;overflow:hidden;display:flex;background:#EEF1F5;margin-bottom:10px}
@@ -212,7 +219,7 @@
 <body>
 
 <header>
-  <h1>Gestión de Cobranzas <span>· Cuenta Corriente</span> <span id="ver" style="font-size:11px;margin-left:6px" title="Versión del archivo">v2026.10.09-d</span></h1>
+  <h1>Gestión de Cobranzas <span>· Cuenta Corriente</span> <span id="ver" style="font-size:11px;margin-left:6px" title="Versión del archivo">v2026.11.06-a</span></h1>
   <div class="tabs">
     <div class="tab active" data-pane="cartera">Cartera</div>
     <div class="tab" data-pane="ventas">Ventas</div>
@@ -430,6 +437,11 @@ function buildMsel(key,opts){
   menu.innerHTML=`<div class="mselActions"><button type="button" data-msel-all="${key}">Todos</button><button type="button" data-msel-none="${key}">Ninguno</button></div>${list}`;
   updateMselBadge(key);
 }
+function toggleLegales(){
+  const solo=selSegm.size===1&&selSegm.has('LEGALES');
+  selSegm.clear(); if(!solo) selSegm.add('LEGALES');
+  populateFilters(); renderCartTable();
+}
 function populateFilters(){
   const arr=Object.values(clientes);
   const vendors=[...new Set(arr.map(c=>c.vendedor))].sort((a,b)=>a.localeCompare(b,'es'));
@@ -463,7 +475,11 @@ function renderTotals(arr){
   const tot=arr.reduce((s,c)=>s+c.saldo,0), ext=arr.reduce((s,c)=>s+c.ext,0);
   const brk={'0-30':0,'31-60':0,'61-90':0,'+90':0}, ebrk={'0-30':0,'31-60':0,'61-90':0,'+90':0};
   arr.forEach(c=>AG.forEach(a=>{brk[a[0]]+=c.brk[a[0]];ebrk[a[0]]+=c.extBrk[a[0]];}));
-  $('kpis').innerHTML=kpi(millones(tot),'Saldo vencido total','red')+kpi(arr.length,'Clientes con deuda','')+kpi(millones(brk['+90']),'En +90 días','gold');
+  const hayLegal=Object.values(clientes).some(c=>c.segLabel==='LEGALES');
+  const lg=arr.filter(c=>c.segLabel==='LEGALES'), lgTot=lg.reduce((x,c)=>x+c.saldo,0);
+  const soloLegal=selSegm.size===1&&selSegm.has('LEGALES');
+  $('kpis').innerHTML=kpi(millones(tot),'Saldo vencido total','red')+kpi(arr.length,'Clientes con deuda','')+kpi(millones(brk['+90']),'En +90 días','gold')
+    +(hayLegal?`<div class="kpi click${soloLegal?' on':''}" data-legal="1" title="${soloLegal?'Quitar el filtro':'Ver solo los clientes en LEGALES'}"><div class="l">En gestión legal (LEGALES)</div><div class="n legal">${millones(lgTot)}</div><div class="s">${lg.length} cliente${lg.length!==1?'s':''} · ${tot?Math.round(lgTot/tot*100):0}% de la deuda · ${soloLegal?'tocá para quitar el filtro':'tocá para filtrar'}</div></div>`:'');
   $('agingBar').innerHTML=AG.map(a=>{const w=tot?brk[a[0]]/tot*100:0;return w>0?`<span style="width:${w}%;background:${a[1]}"></span>`:'';}).join('');
   $('agingLeg').innerHTML=AG.map(a=>`<div class="it"><span class="sw" style="background:${a[1]}"></span>${a[0]} días · <b>${millones(brk[a[0]])}</b> (${tot?Math.round(brk[a[0]]/tot*100):0}%)</div>`).join('');
 }
@@ -489,7 +505,7 @@ function renderCartTable(){
 
   $('cartBody').innerHTML = venNames.map(ven=>{
     const list=groups.get(ven);
-    const subtotal=list.reduce((s,c)=>s+c.saldo,0), gext=list.reduce((s,c)=>s+c.ext,0);
+    const subtotal=list.reduce((s,c)=>s+c.saldo,0), gext=list.reduce((s,c)=>s+c.ext,0), glegal=list.filter(c=>c.segLabel==='LEGALES').reduce((s,c)=>s+c.saldo,0);
     const collapsed=collapsedVendors.has(ven);
     const vbrk={'0-30':0,'31-60':0,'61-90':0,'+90':0}, vext={'0-30':0,'31-60':0,'61-90':0,'+90':0};
     list.forEach(c=>AG.forEach(a=>{vbrk[a[0]]+=c.brk[a[0]];vext[a[0]]+=c.extBrk[a[0]];}));
@@ -500,10 +516,10 @@ function renderCartTable(){
       const detSub=AG.map(a=>c.brk[a[0]]>0?`<span class="pill b${agIdx(a[0])}">${a[0]}: ${money(c.brk[a[0]])}</span>`:'').join('')
         +AG.map(a=>c.extBrk[a[0]]>0?`<span class="pill b${agIdx(a[0])}">US$ ${a[0]}: ${usdn(c.extBrk[a[0]])}</span>`:'').join('');
       const det=c.lines.map(l=>`<tr><td>${l.fv?fdate(l.fv):'—'}</td><td class="num">${l.imp?money(l.imp):'—'}</td><td class="num">${l.ext?usd(l.ext):'—'}</td><td class="num">${l.dias}</td><td><span class="pill b${agIdx(l.b)}">${l.b}</span></td></tr>`).join('');
-      return `<tr class="crow"><td><span class="caret" data-toggle="${c.key}">▶</span></td><td class="rs">${esc(c.rs)}</td><td class="cod">${c.cod}</td><td class="num">${(c.saldo||!c.ext)?money(c.saldo):'—'}</td><td class="num">${c.ext?usd(c.ext):'—'}</td><td class="num">${c.nComp}</td><td><span class="pill b${bi}">${c.worst}</span></td><td class="num">${c.dvmax}</td></tr>
+      return `<tr class="crow"><td><span class="caret" data-toggle="${c.key}">▶</span></td><td class="rs">${esc(c.rs)}${c.segmentacion?`<div><span class="segTag${c.segLabel==='LEGALES'?' legal':''}">${esc(c.segmentacion)}</span></div>`:''}</td><td class="cod">${c.cod}</td><td class="num">${(c.saldo||!c.ext)?money(c.saldo):'—'}</td><td class="num">${c.ext?usd(c.ext):'—'}</td><td class="num">${c.nComp}</td><td><span class="pill b${bi}">${c.worst}</span></td><td class="num">${c.dvmax}</td></tr>
       <tr class="detail" id="det-${c.key}" style="display:none"><td colspan="8"><div class="inner"><div class="detailSub">${detSub}</div><table><thead><tr><th>Vencimiento</th><th class="num">Importe</th><th class="num">US$</th><th class="num">Días</th><th>Aging</th></tr></thead><tbody>${det}</tbody></table></div></td></tr>`;
     }).join('');
-    return `<tr class="groupRow" data-toggle-group="${esc(ven)}"><td colspan="8"><span class="caret groupCaret">${collapsed?'▶':'▼'}</span><span class="groupName">${esc(ven)}</span><span class="groupMeta">${list.length} cliente${list.length!==1?'s':''} · ${money(subtotal)}${gext?' · '+usd(gext):''}</span><span class="groupBrk">${brkHtml}</span></td></tr>${rows}`;
+    return `<tr class="groupRow" data-toggle-group="${esc(ven)}"><td colspan="8"><span class="caret groupCaret">${collapsed?'▶':'▼'}</span><span class="groupName">${esc(ven)}</span><span class="groupMeta">${list.length} cliente${list.length!==1?'s':''} · ${money(subtotal)}${gext?' · '+usd(gext):''}</span>${glegal?`<span class="legalTag" title="Deuda de esta sede en el segmento LEGALES">LEGALES ${money(glegal)}</span>`:''}<span class="groupBrk">${brkHtml}</span></td></tr>${rows}`;
   }).join('');
 }
 
@@ -611,6 +627,7 @@ document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
   if(t.dataset.pane==='informes') renderInformes();
 }));
 $('search').addEventListener('input',renderCartTable);
+$('kpis').addEventListener('click',e=>{ if(e.target.closest('[data-legal]')) toggleLegales(); });
 document.addEventListener('click',e=>{
   const btn=e.target.closest('.mselBtn');
   if(btn){
