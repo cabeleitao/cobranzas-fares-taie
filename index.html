@@ -219,7 +219,7 @@
 <body>
 
 <header>
-  <h1>Gestión de Cobranzas <span>· Cuenta Corriente</span> <span id="ver" style="font-size:11px;margin-left:6px" title="Versión del archivo">v2026.11.06-b</span></h1>
+  <h1>Gestión de Cobranzas <span>· Cuenta Corriente</span> <span id="ver" style="font-size:11px;margin-left:6px" title="Versión del archivo">v2026.11.06-d</span></h1>
   <div class="tabs">
     <div class="tab active" data-pane="cartera">Cartera</div>
     <div class="tab" data-pane="ventas">Ventas</div>
@@ -961,7 +961,7 @@ function exportInformePdf(){
   if(legs.length){ doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(...COL.muted); const t=doc.splitTextToSize('Fotos comparadas: '+legs.join('   |   '),W-2*M); doc.text(t,M,y+2); y+=t.length*3.5+3; }
   // gráficos
   if(model){
-    const gw=(W-2*M-4)/2, ch=60, boxH=ch+22;
+    const gw=(W-2*M-4)/2, ch=Math.max(60,Math.min(100,H-14-y-22)), boxH=ch+22;   // los gráficos aprovechan el resto de la primera página
     if(y+boxH>H-12){ doc.addPage(); y=M; }
     [0,1].forEach(k=>{
       const x=M+k*(gw+4);
@@ -981,7 +981,7 @@ function exportInformePdf(){
   const cellT=td=>{
     if(td.classList.contains('arr-dn')) return 'Mejoró';
     if(td.classList.contains('arr-up')) return 'Empeoró';
-    if(td.classList.contains('arr-eq')) return td.textContent.trim()==='→'?'Igual':'-';
+    if(td.classList.contains('arr-eq')) return td.textContent.trim()==='→'?'Sin cambios':'-';
     const c=td.cloneNode(true);
     c.querySelectorAll('.exp').forEach(e=>e.remove());
     c.querySelectorAll('.bar-wrap').forEach(b=>{ const v=b.querySelector('.bar-val'); b.replaceWith(v?v.textContent:''); });
@@ -993,7 +993,12 @@ function exportInformePdf(){
   const body=trs.map(tr=>[...tr.children].map(cellT)), kinds=trs.map(tr=>tr.className);
   const foot=[...tbl.querySelectorAll('tfoot tr:first-child td')].map(cellT);
   const colStyles={}; heads.forEach((h,i)=>{ colStyles[i]=i===0?{halign:'left',cellWidth:'auto'}:h==='Tend.'?{halign:'center',cellWidth:18}:{halign:'right'}; });
-  if(y+40>H-12){ doc.addPage(); y=M; }
+  // El detalle siempre arranca en una página nueva (la primera queda para el resumen y los gráficos)
+  doc.addPage(); y=M;
+  doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(...COL.ink);
+  doc.text(txt(root.querySelector('.title')).replace(/^Deuda vencida por /,'Detalle por '),M,y+5);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(90,100,115);
+  doc.text(sub,M,y+10); y+=10+sub.length*3.6+3;
   doc.autoTable({
     startY:y, head:[heads], body, foot:[foot], showFoot:'lastPage', theme:'grid',
     styles:{font:'helvetica',fontSize:7.8,cellPadding:1.5,lineColor:[225,229,235],lineWidth:0.15,textColor:COL.ink,overflow:'linebreak'},
@@ -1152,7 +1157,9 @@ const mfmt=x=>(x/1e6).toLocaleString('es-AR',{minimumFractionDigits:1,maximumFra
 const pfmt=(x,d)=>x.toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d})+'%';
 function ratioColor(r){ if(r==null||r===0) return 'var(--text3)'; if(r<=10) return 'var(--green)'; if(r<=20) return 'var(--amber)'; return 'var(--red)'; }
 function trendOf(cur,prev,eps){ if(cur==null||prev==null) return null; const d=cur-prev; return Math.abs(d)<=eps?'eq':(d<0?'dn':'up'); }
-const TREND={dn:['↓','arr-dn'],up:['↑','arr-up'],eq:['→','arr-eq']};
+const TREND={dn:['↓','arr-dn','Mejoró'],up:['↑','arr-up','Empeoró'],eq:['→','arr-eq','Sin cambios']};
+// Se considera "sin cambios" un ratio que se mueve menos de 0,1 punto (o una deuda que se mueve menos de 1%)
+const TOL_RATIO=0.1, TOL_DEUDA=0.01;
 const fotoLabel=f=>esc(fdate(f.fecha))+(f.etiqueta?' · '+esc(f.etiqueta):'');
 function baseIndex(){ let bi=infBase?fotos.findIndex(f=>f.id===infBase):-1; return bi<0?fotos.length-1:bi; }
 
@@ -1256,7 +1263,7 @@ function renderInformes(){
     const v=variant==='con'?tot:variant==='sin'?resto:parte;
     return {deuda,ratio:v>0?deuda/v*100:null,ventas:v>0?v:null};
   };
-  const trendFor=vs=>{ if(vs.length<2) return null; const a=vs[vs.length-1], b=vs[vs.length-2]; if(!a||!b) return null; return (a.ratio!=null&&b.ratio!=null)?trendOf(a.ratio,b.ratio,0.05):trendOf(a.deuda,b.deuda,1); };
+  const trendFor=vs=>{ if(vs.length<2) return null; const a=vs[vs.length-1], b=vs[vs.length-2]; if(!a||!b) return null; return (a.ratio!=null&&b.ratio!=null)?trendOf(a.ratio,b.ratio,TOL_RATIO):trendOf(a.deuda,b.deuda,Math.max(1,TOL_DEUDA*Math.max(Math.abs(a.deuda),Math.abs(b.deuda)))); };
   const exNm=set=>{const a=[...set].map(shortName);return a.length===1?a[0]:a.length===2?a.join(' y '):'deuda en US$';};
   const partCods=key=>{ const st=new Set(); cols.forEach(c=>{ const p=c.f.partes&&c.f.partes[key]; if(p) (p.cods||[]).forEach(x=>st.add(x)); c.f.rows.forEach(r=>{ if(r[2]===key&&r[8]+r[9]+r[10]+r[11]>0) st.add(r[0]); }); }); return st; };
   const partNm=(key,ens)=>{ let n=null; cols.forEach(c=>{const p=c.f.partes&&c.f.partes[key]; if(p&&p.nombre) n=p.nombre;}); return n||exNm(ens); };
@@ -1288,7 +1295,7 @@ function renderInformes(){
     Object.keys(f.ventas||{}).forEach(k=>{ if(!seen.has(k)&&f.ventas[k]>0) v+=f.ventas[k]; });   // sedes con ventas y sin deuda en los tramos elegidos
     return (v&&!bad)?d/v*100:null; };
   const gA=gR(last,'main'), gAp=anySplit?gR(last,'pes'):null;
-  const mejor=rows.filter(r=>r.tr==='dn'), peor=rows.filter(r=>r.tr==='up'), conTr=rows.filter(r=>r.tr).length;
+  const mejor=rows.filter(r=>r.tr==='dn'), peor=rows.filter(r=>r.tr==='up'), igual=rows.filter(r=>r.tr==='eq'), conTr=rows.filter(r=>r.tr).length;
   const noun={sede:'Sedes',segmento:'Segmentos',cliente:'Clientes'}[infMode];
   const tramosTxt=infAging.size?AG.filter(a=>infAging.has(a[0])).map(a=>a[0]).join(', ')+' días':'';
   const exTxt=anySplit?splitRows[0].exName:'';
@@ -1297,7 +1304,7 @@ function renderInformes(){
   const k2=isSede
     ?`<div class="kpi"><div class="kpi-l">Ratio global deuda / ventas</div><div class="kpi-v" style="color:${ratioColor(gA)}">${gA==null?'—':pfmt(gA,1)}</div><div class="kpi-s muted">${gA==null?'sin ventas cargadas en esta foto':'sobre las ventas 12 meses cargadas'}${gAp!=null?`<br>sin ${esc(exTxt)}: <b style="color:${ratioColor(gAp)}">${pfmt(gAp,1)}</b>`:''}</div></div>`
     :`<div class="kpi"><div class="kpi-l">Deuda en +90 días</div><div class="kpi-v">${mfmt(t90)}</div><div class="kpi-s muted">${tAll?pfmt(t90/tAll*100,1):'—'} de la deuda total</div></div>`;
-  const k3=`<div class="kpi" style="border-color:var(--green);background:rgba(52,200,143,0.07)"><div class="kpi-l">${noun} que mejoraron</div><div class="kpi-v good">${p1?mejor.length+' / '+conTr:'—'}</div><div class="kpi-s good">${p1?'vs foto del '+esc(fdate(p1.fecha)):'es la primera foto'}</div></div>`;
+  const k3=`<div class="kpi" style="border-color:var(--green);background:rgba(52,200,143,0.07)"><div class="kpi-l">${noun} que mejoraron</div><div class="kpi-v good">${p1?mejor.length+' / '+conTr:'—'}</div><div class="kpi-s good">${p1?'vs foto del '+esc(fdate(p1.fecha))+(igual.length?' · '+igual.length+' sin cambios':''):'es la primera foto'}</div></div>`;
   const k4=`<div class="kpi" style="border-color:var(--red);background:rgba(240,112,110,0.07)"><div class="kpi-l">${noun} que empeoraron</div><div class="kpi-v bad">${p1?peor.length+' / '+conTr:'—'}</div><div class="kpi-s bad">${p1&&peor.length?esc(peor.slice(0,3).map(r=>r.name).join(', '))+(peor.length>3?'…':''):'&nbsp;'}</div></div>`;
   const k5=`<div class="kpi click" data-extpop="1" title="Ver la deuda en US$ por tramo" style="border-color:var(--blue);background:rgba(106,167,245,0.08)"><div class="kpi-l">Deuda en moneda extranjera (EXT)</div><div class="kpi-v" style="color:var(--blue)">${usd(totExt)}</div><div class="kpi-s muted">${tcB&&totExt>0?'≈ '+mfmt(totExt*tcB)+' pesificados a $'+tcTxt:'aparte de los totales en pesos'}<br><span style="color:var(--blue)">ver por tramo ›</span></div></div>`;
 
@@ -1340,7 +1347,7 @@ function renderInformes(){
     return `<tr class="${kind==='main'?'mainRow':'child'}${isMainSplit?' split':''}"${isMainSplit?` data-exp="${esc(r.key)}"`:''}><td class="hi">${nameCell}</td>`
       +(isSede?`<td class="r">${vb&&vb.ventas?mfmt(vb.ventas):dash}</td>`:'')
       +`<td class="r">${deudaCell}</td><td class="r">${extCell}</td><td>${barCell}</td>${prev}`
-      +(p1?`<td class="c ${t?t[1]:'arr-eq'}" style="font-size:14px">${t?t[0]:'—'}</td>`:'')+`</tr>`;
+      +(p1?`<td class="c ${t?t[1]:'arr-eq'}" style="font-size:14px" title="${t?t[2]:''}">${t?t[0]:'—'}</td>`:'')+`</tr>`;
   };
   const rowsHtml=shown.map(r=>rowHtml(r,'main')+((r.split&&infExp.has(r.key))?rowHtml(r,'sin')+rowHtml(r,'parte'):'')).join('');
 
@@ -1354,6 +1361,7 @@ function renderInformes(){
 
   const sinV=isSede?[...A.keys()].filter(k=>!ventasOf(base,k)):[];
   const notes=[`* Importes en pesos (CTE)${tramosTxt?', solo de los tramos '+esc(tramosTxt):', de todos los tramos de vencimiento (filtrables arriba)'}.`];
+  if(p1) notes.push('Tendencia: "Sin cambios" cuando el ratio varía menos de 0,1 punto (o la deuda menos de 1%, en las filas sin ventas); si no, "Mejoró" (baja) o "Empeoró" (sube).');
   if(anySplit) notes.push(`Las sedes con deuda en US$ se muestran con los dólares pesificados al tipo de cambio de cada foto (base: $${tcTxt} por US$). Tocá la fila para ver el ratio sin ese cliente (contra las ventas directas del resto) y el del cliente solo.`);
   if(isSede&&totExt>0&&!tcB) notes.push('Esta foto no tiene tipo de cambio: la deuda en US$ no se suma a la de su sede. Cargalo con "Tipo de cambio de esta foto".');
   if(!isSede&&totExt>0) notes.push('En esta vista la deuda en US$ se muestra aparte y no se suma a la deuda en pesos.');
