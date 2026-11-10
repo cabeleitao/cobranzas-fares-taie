@@ -211,6 +211,7 @@
   .extTbl td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}
   .extTbl tfoot td{font-weight:700;border-top:2px solid var(--line);border-bottom:none;background:transparent}
   .extTbl small{display:block;font-size:10.5px;color:var(--muted);font-weight:400}
+  .inf th small{display:block;font-weight:400;font-size:10px;color:var(--text3)}
   .inf .tblT{margin:26px 0 8px;font-size:12px;color:var(--text2);font-weight:500}
   .inf .tblT span{color:var(--text3);font-weight:400}
   .inf .note{margin-top:12px;font-size:10px;color:var(--text3);line-height:1.5}
@@ -221,7 +222,7 @@
 <body>
 
 <header>
-  <h1>Gestión de Cobranzas <span>· Cuenta Corriente</span> <span id="ver" style="font-size:11px;margin-left:6px" title="Versión del archivo">v2026.11.07-a</span></h1>
+  <h1>Gestión de Cobranzas <span>· Cuenta Corriente</span> <span id="ver" style="font-size:11px;margin-left:6px" title="Versión del archivo">v2026.11.07-b</span></h1>
   <div class="tabs">
     <div class="tab active" data-pane="cartera">Cartera</div>
     <div class="tab" data-pane="ventas">Ventas</div>
@@ -1000,16 +1001,16 @@ function buildInformePdf(){
     c.querySelectorAll('br').forEach(b=>b.replaceWith(' - '));
     return pdfTxt(c.textContent.replace(/\s+/g,' ').trim());
   };
-  const drawTable=(tbl,startY)=>{
+  const drawTable=(dc,tbl,startY)=>{
     const heads=[...tbl.querySelectorAll('thead th')].map(h=>txt(h));
     const trs=[...tbl.querySelectorAll('tbody tr')];
     const body=trs.map(tr=>[...tr.children].map(cellT)), kinds=trs.map(tr=>tr.className);
     const foot=[...tbl.querySelectorAll('tfoot tr:first-child td')].map(cellT);
     const isComp=tbl.classList.contains('compTbl');
     const colStyles={}; heads.forEach((h,i)=>{ colStyles[i]=i===0?{halign:'left',cellWidth:'auto'}:h==='Tend.'?{halign:'center',cellWidth:18}:{halign:'right'}; });
-    doc.autoTable({
+    dc.autoTable({
       startY, head:[heads], body, foot:[foot], showFoot:'lastPage', theme:'grid',
-      styles:{font:'helvetica',fontSize:7.8,cellPadding:1.5,lineColor:[225,229,235],lineWidth:0.15,textColor:COL.ink,overflow:'linebreak'},
+      styles:{font:'helvetica',fontSize:model?7.8:7.4,cellPadding:model?1.5:1.15,lineColor:[225,229,235],lineWidth:0.15,textColor:COL.ink,overflow:'linebreak'},   // sin gráficos las filas van un poco más compactas para que todo entre en una hoja
       headStyles:{fillColor:[31,41,55],textColor:[255,255,255],fontStyle:'bold'},
       footStyles:{fillColor:[236,239,244],textColor:COL.ink,fontStyle:'bold'},
       columnStyles:colStyles, margin:{left:M,right:M,bottom:14}, showHead:'everyPage',
@@ -1021,26 +1022,32 @@ function buildInformePdf(){
         if(child){ d.cell.styles.fillColor=[243,244,247]; d.cell.styles.textColor=[90,100,115]; }
         if(d.column.index===0) d.cell.styles.fontStyle=child?'normal':'bold';
         if(h==='Tend.'){ d.cell.styles.textColor=tx==='Mejoró'?COL.green:tx==='Empeoró'?COL.red:COL.muted; }
-        else if(h==='Var. peso (pp)'){ const n=parseFloat(tx.replace(',','.')), viejo=/^(61-90|\+90)/.test(body[d.row.index][0]); d.cell.styles.textColor=(viejo&&Math.abs(n)>=0.05)?(n>0?COL.red:COL.green):COL.muted; }
+        else if(h==='Var. $'||h==='Var. %'||h==='Var. peso (pp)'){ const n=parseFloat(tx.replace(/\./g,'').replace(',','.')), viejo=/^(61-90|\+90)/.test(body[d.row.index][0]); d.cell.styles.textColor=(viejo&&isFinite(n)&&Math.abs(n)>=(h==='Var. %'?0.5:0.05))?(n>0?COL.red:COL.green):COL.muted; }
         else if(isComp&&h==='+90 días'&&/%$/.test(tx)){ const n=parseFloat(tx.replace(',','.')); d.cell.styles.textColor=n>=50?COL.red:n>=25?COL.amber:COL.green; }
         else if(isSede&&d.column.index>0&&/^\d[\d.]*,\d%$/.test(tx)){ const n=parseFloat(tx.replace(',','.')); d.cell.styles.textColor=n<=10?COL.green:n<=20?COL.amber:COL.red; }
       }
     });
-    return doc.lastAutoTable.finalY;
+    return dc.lastAutoTable.finalY;
   };
-  // El detalle siempre arranca en una página nueva (la primera queda para el resumen y los gráficos)
-  doc.addPage(); y=M;
-  doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(...COL.ink);
-  doc.text(txt(root.querySelector('.title')).replace(/^Deuda vencida por /,'Detalle por '),M,y+5);
-  doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(90,100,115);
-  doc.text(sub,M,y+10); y+=10+sub.length*3.6+3;
-  y=drawTable(root.querySelector('table'),y)+4;
+  // mide cuánto ocupa una tabla en un documento de prueba (para decidir si entra en lo que queda de la hoja)
+  const medir=tbl=>{ const sd=new window.jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a4'}); const fy=drawTable(sd,tbl,M); return {h:fy-M,paginas:sd.getNumberOfPages()}; };
+  const mainTbl=root.querySelector('table');
+  const abrirDetalle=()=>{
+    doc.addPage(); y=M;
+    doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(...COL.ink);
+    doc.text(txt(root.querySelector('.title')).replace(/^Deuda vencida por /,'Detalle por '),M,y+5);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(90,100,115);
+    doc.text(sub,M,y+10); y+=10+sub.length*3.6+3;
+  };
+  if(model) abrirDetalle();   // con gráficos, el detalle empieza en una página nueva
+  else{ const m=medir(mainTbl); if(m.paginas>1||m.h+4>H-14-y) abrirDetalle(); }   // sin gráficos, sigue en la primera página si entra entero
+  y=drawTable(doc,mainTbl,y)+4;
   root.querySelectorAll('table.compTbl').forEach(t=>{
-    const cap=t.parentElement.previousElementSibling;
-    if(y+45>H-14){ doc.addPage(); y=M; }
+    const cap=t.parentElement.previousElementSibling, m=medir(t);
+    if(m.paginas>1||m.h+12>H-14-y){ doc.addPage(); y=M; }
     doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(...COL.ink);
     doc.text(pdfTxt(plain(cap)),M,y+5); y+=8;
-    y=drawTable(t,y)+4;
+    y=drawTable(doc,t,y)+4;
   });
   // notas
   const nt=root.lastElementChild;
@@ -1194,6 +1201,7 @@ function trendOf(cur,prev,eps){ if(cur==null||prev==null) return null; const d=c
 const TREND={dn:['↓','arr-dn','Mejoró'],up:['↑','arr-up','Empeoró'],eq:['→','arr-eq','Sin cambios']};
 // Se considera "sin cambios" un ratio que se mueve menos de 0,1 punto (o una deuda que se mueve menos de 1%)
 const TOL_RATIO=0.1, TOL_DEUDA=0.01;
+const INF_GRAFICOS=false;   // gráficos de evolución en Informes: se dejan apagados hasta que haya más fotos (poner true para activarlos)
 const fotoLabel=f=>esc(fdate(f.fecha))+(f.etiqueta?' · '+esc(f.etiqueta):'');
 function baseIndex(){ let bi=infBase?fotos.findIndex(f=>f.id===infBase):-1; return bi<0?fotos.length-1:bi; }
 
@@ -1340,7 +1348,7 @@ function renderInformes(){
   const tramosTxt=(infAging.size&&!isTramo)?AG.filter(a=>infAging.has(a[0])).map(a=>a[0]).join(', ')+' días':'';
   const exTxt=anySplit?splitRows[0].exName:'';
 
-  const k1=`<div class="kpi"><div class="kpi-l">Deuda vencida total${anySplit?' (con US$ pesificados)':' (pesos)'}</div><div class="kpi-v">${mfmt(totCon)}</div><div class="kpi-s muted">${tramosTxt?'tramos '+esc(tramosTxt)+' · ':''}foto del ${esc(fdate(base.fecha))}${anySplit?`<br>sin ${esc(exTxt)}: ${mfmt(totPes)}`:''}</div></div>`;
+  let k1=`<div class="kpi"><div class="kpi-l">Deuda vencida total${anySplit?' (con US$ pesificados)':' (pesos)'}</div><div class="kpi-v">${mfmt(totCon)}</div><div class="kpi-s muted">${tramosTxt?'tramos '+esc(tramosTxt)+' · ':''}foto del ${esc(fdate(base.fecha))}${anySplit?`<br>sin ${esc(exTxt)}: ${mfmt(totPes)}`:''}</div></div>`;
   let k2=isSede
     ?`<div class="kpi"><div class="kpi-l">Ratio global deuda / ventas</div><div class="kpi-v" style="color:${ratioColor(gA)}">${gA==null?'—':pfmt(gA,1)}</div><div class="kpi-s muted">${gA==null?'sin ventas cargadas en esta foto':'sobre las ventas 12 meses cargadas'}${gAp!=null?`<br>sin ${esc(exTxt)}: <b style="color:${ratioColor(gAp)}">${pfmt(gAp,1)}</b>`:''}</div></div>`
     :`<div class="kpi"><div class="kpi-l">Deuda en +90 días</div><div class="kpi-v">${mfmt(t90)}</div><div class="kpi-s muted">${tAll?pfmt(t90/tAll*100,1):'—'} de la deuda total</div></div>`;
@@ -1348,10 +1356,14 @@ function renderInformes(){
   let k4=`<div class="kpi" style="border-color:var(--red);background:rgba(240,112,110,0.07)"><div class="kpi-l">${noun} que empeoraron</div><div class="kpi-v bad">${p1?peor.length+' / '+conTr:'—'}</div><div class="kpi-s bad">${p1&&peor.length?esc(peor.slice(0,3).map(r=>r.name).join(', '))+(peor.length>3?'…':''):'&nbsp;'}</div></div>`;
   const k5=`<div class="kpi click" data-extpop="1" title="Ver la deuda en US$ por tramo" style="border-color:var(--blue);background:rgba(106,167,245,0.08)"><div class="kpi-l">Deuda en moneda extranjera (EXT)</div><div class="kpi-v" style="color:var(--blue)">${usd(totExt)}</div><div class="kpi-s muted">${tcB&&totExt>0?'≈ '+mfmt(totExt*tcB)+' pesificados a $'+tcTxt:'aparte de los totales en pesos'}<br><span style="color:var(--blue)">ver por tramo ›</span></div></div>`;
 
-  if(isTramo){   // composición: las tarjetas muestran el peso de los tramos clave
-    const T=k=>rows.find(r=>r.key===k);
-    const card=(k,label,cls,style)=>{ const r=T(k), v=r&&r.main[last]?r.main[last].deuda:0, d=p1?shareOf(r,last)-shareOf(r,last-1):null;
-      return `<div class="kpi"${style?` style="${style}"`:''}><div class="kpi-l">${label}</div><div class="kpi-v${cls?' '+cls:''}">${mfmt(v)}</div><div class="kpi-s ${cls||'muted'}">${pfmt(shareOf(r,last),1)} del total${d!=null?' · '+ppTxt(d)+' vs foto del '+esc(fdate(p1.fecha)):''}</div></div>`; };
+  if(isTramo){   // composición: cuánta deuda hay en cada tramo ahora y cuánta había en la foto anterior
+    const T=k=>rows.find(r=>r.key===k), amt=(r,ci)=>r&&r.main[ci]?r.main[ci].deuda:0;
+    const sS=x=>(x>=0?'+':'-')+mfmt(Math.abs(x));
+    const card=(k,label,cls,style)=>{ const r=T(k), v=amt(r,last);
+      let sub=`${pfmt(shareOf(r,last),1)} del total`;
+      if(p1){ const pv=amt(r,last-1), d=shareOf(r,last)-shareOf(r,last-1); sub+=` (${ppTxt(d)})<br>antes: ${mfmt(pv)} · ${pfmt(shareOf(r,last-1),1)} (foto del ${esc(fdate(p1.fecha))})`; }
+      return `<div class="kpi"${style?` style="${style}"`:''}><div class="kpi-l">${label}</div><div class="kpi-v${cls?' '+cls:''}">${mfmt(v)}</div><div class="kpi-s ${cls||'muted'}">${sub}</div></div>`; };
+    k1=`<div class="kpi"><div class="kpi-l">Deuda vencida total (pesos)</div><div class="kpi-v">${mfmt(totCon)}</div><div class="kpi-s muted">foto del ${esc(fdate(base.fecha))}${p1?`<br>antes: ${mfmt(totC[last-1])} · ${sS(totC[last]-totC[last-1])} (foto del ${esc(fdate(p1.fecha))})`:''}</div></div>`;
     k2=card('+90','Deuda de más de 90 días','bad','border-color:var(--red);background:rgba(240,112,110,0.07)');
     k3=card('61-90','Deuda de 61 a 90 días','',null);
     k4=card('0-30','Deuda reciente (hasta 30 días)','good','border-color:var(--green);background:rgba(52,200,143,0.07)');
@@ -1409,7 +1421,7 @@ function renderInformes(){
 
   const sinV=isSede?[...A.keys()].filter(k=>!ventasOf(base,k)):[];
   const notes=[`* Importes en pesos (CTE)${tramosTxt?', solo de los tramos '+esc(tramosTxt):(isTramo?', abiertos por tramo de vencimiento':', de todos los tramos de vencimiento (filtrables arriba)')}.`];
-  if(isTramo) notes.push('Las columnas con fecha muestran el peso de cada tramo sobre la deuda total de esa foto. "Var. peso" es el cambio en puntos porcentuales contra la foto anterior: en verde cuando baja el peso de la deuda de más de 60 días y en rojo cuando sube (para los tramos más recientes no se marca).');
+  if(isTramo) notes.push('Para cada foto se muestra cuánta deuda había en cada tramo y qué peso tenía sobre el total. Las variaciones comparan la foto actual con la anterior; en los tramos de más de 60 días se pintan en verde si la deuda (o su peso) baja y en rojo si sube. En los tramos recientes no se marca, porque más deuda reciente es deuda que acaba de vencer.');
   if(p1&&!isTramo) notes.push('Tendencia: "Sin cambios" cuando el ratio varía menos de 0,1 punto (o la deuda menos de 1%, en las filas sin ventas); si no, "Mejoró" (baja) o "Empeoró" (sube).');
   if(anySplit) notes.push(`Las sedes con deuda en US$ se muestran con los dólares pesificados al tipo de cambio de cada foto (base: $${tcTxt} por US$). Tocá la fila para ver el ratio sin ese cliente (contra las ventas directas del resto) y el del cliente solo.`);
   if(isSede&&totExt>0&&!tcB) notes.push('Esta foto no tiene tipo de cambio: la deuda en US$ no se suma a la de su sede. Cargalo con "Tipo de cambio de esta foto".');
@@ -1422,7 +1434,8 @@ function renderInformes(){
   const nF=fotos.length, yrB=new Date(fotos[nF-1].fecha).getFullYear();
   const lbls=fotos.map(f=>shortDate(f.fecha,yrB));
   let chartsHtml=''; infChartModel=null;
-  if(nF<2){ chartsHtml=`<div class="note" style="margin:-10px 0 18px">Los gráficos de evolución aparecen desde la segunda foto.</div>`; }
+  if(!INF_GRAFICOS){ /* sin gráficos por ahora */ }
+  else if(nF<2){ chartsHtml=`<div class="note" style="margin:-10px 0 18px">Los gráficos de evolución aparecen desde la segunda foto.</div>`; }
   else{
     const allM=fotos.map(f=>snapAgg(f,infMode));
     // Gráfico de arriba: la deuda de cada foto abierta según lo que se consulta (tramo, sede o segmento)
@@ -1483,10 +1496,40 @@ function renderInformes(){
     compHtml=`<div class="tblT">Composición de la deuda de cada sede <span>(% de la deuda de la sede · foto base)</span></div><div style="overflow-x:auto"><table class="compTbl"><thead><tr><th>Sede</th><th class="r">Deuda</th><th class="r">0-30 días</th><th class="r">31-60 días</th><th class="r">61-90 días</th><th class="r">+90 días</th><th class="r">+90 ($)</th></tr></thead><tbody>${rowsC}</tbody><tfoot><tr><td>TOTAL</td><td class="r">${mfmt(tt)}</td>${[0,1,2].map(i=>`<td class="r">${pc(b4[i],tt)}</td>`).join('')}<td class="r" style="color:${c90(p90T)}">${pc(b4[3],tt)}</td><td class="r">${mfmt(b4[3])}</td></tr></tfoot></table></div>`;
   }
 
+  let tramoHtml='';
+  if(isTramo){
+    const dt=ci=>esc(shortDate(cols[ci].f.fecha,yr));
+    const viejo=r=>AG.findIndex(a=>a[0]===r.key)>=2;                       // 61-90 y +90
+    const col=(x,eps,on)=>(!on||Math.abs(x)<eps)?'var(--text3)':x>0?'var(--red)':'var(--green)';
+    const sM=x=>(x>=0?'+':'-')+mfmt(Math.abs(x)), sP=x=>(x>=0?'+':'-')+pfmt(Math.abs(x),1);
+    const amt=(r,ci)=>r.main[ci]?r.main[ci].deuda:0;
+    let hd=`<tr><th>Tramo de vencimiento</th>`;
+    prevIdx.forEach(ci=>{ hd+=`<th class="r">Deuda <small>${dt(ci)}</small></th><th class="r">% <small>${dt(ci)}</small></th>`; });
+    hd+=`<th class="r">Deuda <small>${dt(last)} · actual</small></th><th>% del total <small>${dt(last)}</small></th><th class="r">US$ (EXT) <small>${dt(last)}</small></th>`;
+    if(p1) hd+=`<th class="r">Var. $</th><th class="r">Var. %</th><th class="r">Var. peso (pp)</th>`;
+    hd+='</tr>';
+    const maxSh=Math.max(1,...rows.map(r=>shareOf(r,last)));
+    const bodyT=rows.map(r=>{
+      const sh=shareOf(r,last);
+      let h=`<tr><td class="hi">${esc(r.name)}</td>`;
+      prevIdx.forEach(ci=>{ h+=`<td class="r">${amt(r,ci)>0?mfmt(amt(r,ci)):dash}</td><td class="r">${pfmt(shareOf(r,ci),1)}</td>`; });
+      const exC=r.ext?`${usd(r.ext)}${tcB?`<br><span style="font-size:9px;color:var(--text3)">≈ ${mfmt(r.ext*tcB)}</span>`:''}`:dash;
+      h+=`<td class="r">${amt(r,last)>0?mfmt(amt(r,last)):dash}</td><td><div class="bar-wrap"><div class="bar-bg"><div class="bar-fill" style="width:${(sh/maxSh*100).toFixed(1)}%;background:var(--blue)"></div></div><span class="bar-val" style="color:var(--blue)">${pfmt(sh,1)}</span></div></td><td class="r">${exC}</td>`;
+      if(p1){
+        const pa=amt(r,last-1), d$=amt(r,last)-pa, dp=pa>0?d$/pa*100:null, dpp=sh-shareOf(r,last-1), o=viejo(r);
+        const c1=col(dp==null?d$:dp,0.5,o), c2=col(dpp,0.05,o);
+        h+=`<td class="r" style="color:${c1}">${sM(d$)}</td><td class="r" style="color:${c1}">${dp==null?'—':sP(dp)}</td><td class="r" style="color:${c2}">${ppTxt(dpp)}</td>`;
+      }
+      return h+'</tr>';
+    }).join('');
+    const ft=`<tr><td>TOTAL</td>${prevIdx.map(ci=>`<td class="r">${mfmt(totC[ci])}</td><td class="r">100%</td>`).join('')}<td class="r">${mfmt(totC[last])}</td><td><span class="bar-val" style="color:var(--blue)">100%</span></td><td class="r">${totExt?usd(totExt):dash}</td>${p1?`<td class="r">${sM(totC[last]-totC[last-1])}</td><td class="r">${totC[last-1]>0?sP((totC[last]-totC[last-1])/totC[last-1]*100):'—'}</td><td class="r">—</td>`:''}</tr>`;
+    tramoHtml=`<div style="overflow-x:auto"><table><thead>${hd}</thead><tbody>${bodyT}</tbody><tfoot>${ft}</tfoot></table></div>`;
+  }
+
   box.innerHTML=`<div class="header"><div class="label">Gestión de cobranzas</div><div class="title">Deuda vencida por ${isSede?'sede':infMode==='segmento'?'segmento':isTramo?'tramo de vencimiento':'razón social'}</div>
     <div class="sub">Foto base: ${fotoLabel(base)}${isSede?' · ventas 12 meses según esa foto':''}${tramosTxt?' · tramos '+esc(tramosTxt):''}${p1?' · comparada con '+(p2?'las 2 fotos anteriores':'la foto anterior'):' · todavía no hay fotos anteriores para comparar'}</div></div>
     <div class="kpi-row">${k1}${k2}${k3}${k4}${k5}</div>${chartsHtml}${legend}
-    <div style="overflow-x:auto"><table><thead>${head}</thead><tbody>${rowsHtml||`<tr><td colspan="${nCols}" class="muted" style="text-align:center;padding:24px">Sin resultados</td></tr>`}</tbody><tfoot>${foot}</tfoot></table></div>${compHtml}
+    ${isTramo?tramoHtml:`<div style="overflow-x:auto"><table><thead>${head}</thead><tbody>${rowsHtml||`<tr><td colspan="${nCols}" class="muted" style="text-align:center;padding:24px">Sin resultados</td></tr>`}</tbody><tfoot>${foot}</tfoot></table></div>`}${compHtml}
     <div class="note">${notes.join('<br>')}</div>`;
 }
 function shortDate(iso,refYear){const d=new Date(iso);return d.getDate()+'/'+(d.getMonth()+1)+(d.getFullYear()!==refYear?'/'+String(d.getFullYear()).slice(2):'');}
